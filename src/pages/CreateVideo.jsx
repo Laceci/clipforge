@@ -162,7 +162,7 @@ export default function CreateVideo() {
       setSavedProjectId(initProject.id);
 
       // Pass video provider setting from user preferences
-      enhancedProjectData.video_provider = userPrefs?.video_provider || 'image_fallback';
+      enhancedProjectData.video_provider = userPrefs?.video_provider ?? null;
 
       const result = await runVideoPipeline(enhancedProjectData, (prog) => {
         setGenProgress(prog);

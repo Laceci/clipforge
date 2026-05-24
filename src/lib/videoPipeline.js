@@ -45,8 +45,9 @@ export async function runVideoPipeline(projectData, onProgress) {
   step('script');
   let script = projectData.script?.trim() || '';
   if (!script && projectData.topic) {
-    const generated = await base44.integrations.Core.InvokeLLM({
-      prompt: `You are a viral short-form video scriptwriter. Write a compelling ${projectData.duration_target || '60s'} script for a faceless vertical video.
+    try {
+      const generated = await base44.integrations.Core.InvokeLLM({
+        prompt: `You are a viral short-form video scriptwriter. Write a compelling ${projectData.duration_target || '60s'} script for a faceless vertical video.
 
 Topic/Hook: "${projectData.topic}"
 Category: ${projectData.template_category || 'custom'}
@@ -61,8 +62,12 @@ Requirements:
 - Viral-worthy opening hook
 
 Output the script only.`,
-    });
-    script = typeof generated === 'string' ? generated : generated.toString();
+      });
+      script = typeof generated === 'string' ? generated : generated.toString();
+    } catch (err) {
+      const detail = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'unknown';
+      throw new Error(`Script generation failed: ${detail}`);
+    }
   }
 
   console.log(`[ClipForge] ✍️ Script ready (${script.split(' ').length} words)`);
@@ -125,21 +130,38 @@ Output the script only.`,
 
   // Step 4: Generate cinematic video clips via backend function
   step('visuals', 'Generating cinematic video clips...');
+
+  const invokeWithTimeout = (fnName, payload, timeoutMs = 90000) => {
+    const call = base44.functions.invoke(fnName, payload);
+    const timer = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${fnName} timed out after ${timeoutMs / 1000}s — try again or switch to a different provider`)), timeoutMs)
+    );
+    return Promise.race([call, timer]);
+  };
+
   const scenesWithClips = await Promise.all(scenesWithDirection.map(async (scene, i) => {
     const directed = scene.directedScene;
     console.log(`[ClipForge] 🎬 Scene ${i + 1} - ${directed?.mood || 'neutral'} mood, ${directed?.camera_angle || 'medium'} angle`);
 
-    const result = await base44.functions.invoke('generateVideoClip', {
-      sceneText: scene.text,
-      sceneIndex: i,
-      duration: scene.duration || 5,
-      mood: directed?.mood || 'neutral',
-      action: directed?.setting || '',
-      visualMode: cinematicMode,
-      visualStyle: projectData.visual_style || 'cinematic',
-      resolution: projectData.resolution || '1080p',
-      provider: projectData.video_provider || null,
-    });
+    const cleanSceneText = (scene.text || '').replace(/\[SCENE\]/gi, '').replace(/\s+/g, ' ').trim();
+
+    let result;
+    try {
+      result = await invokeWithTimeout('generateVideoClip', {
+        sceneText: cleanSceneText,
+        sceneIndex: i,
+        duration: scene.duration || 5,
+        mood: directed?.mood || 'neutral',
+        action: directed?.setting || '',
+        visualMode: cinematicMode,
+        visualStyle: projectData.visual_style || 'cinematic',
+        resolution: projectData.resolution || '1080p',
+        provider: projectData.video_provider || null,
+      });
+    } catch (err) {
+      const detail = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'unknown';
+      throw new Error(`Scene ${i + 1} clip failed: ${detail}`);
+    }
 
     const clipData = result.data;
 
@@ -221,7 +243,7 @@ Output the script only.`,
   let video_url = null;
   try {
     console.log('[ClipForge] 🎙 Calling renderFinalVideo (ElevenLabs + Creatomate)...');
-    const renderResult = await base44.functions.invoke('renderFinalVideo', {
+    const renderResult = await invokeWithTimeout('renderFinalVideo', {
       script,
       voice_id:      projectData.voice_id || 'morgan_deep',
       voice_speed:   projectData.voice_speed || 1.0,
@@ -229,7 +251,7 @@ Output the script only.`,
         image_url: s.image_url || null,
         video_url: s.video_url || null,
         duration:  s.clip_duration || s.duration || 5,
-        caption:   s.text || s.caption || '',
+        caption:   (s.text || s.caption || '').replace(/\[SCENE\]/gi, '').trim(),
       })),
       caption_style: captionStyle,
       highlight_color: highlightColor,

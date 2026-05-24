@@ -49,7 +49,16 @@ export default function ApiConnectionsPanel() {
       setResults(res.data || res);
       setLastChecked(new Date());
     } catch (e) {
-      setResults({ _error: e.message });
+      // checkApiConnections may not be deployed on all Base44 plans.
+      // Show a helpful message rather than a raw error.
+      const msg = e.message || '';
+      if (msg.includes('not found') || msg.includes('404') || msg.includes('Backend Platform')) {
+        setResults({
+          _error: 'Connection checker not available on this Base44 plan. Your secrets are configured via Base44 → Secrets. Test the pipeline directly from Create Video.',
+        });
+      } else {
+        setResults({ _error: msg });
+      }
     } finally {
       setLoading(false);
     }
