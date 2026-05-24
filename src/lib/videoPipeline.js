@@ -128,7 +128,8 @@ Output the script only.`,
     directedScene: directorReport.scenes[i],
   }));
 
-  // Step 4: Generate cinematic video clips via backend function
+  // Step 4: Generate cinematic video clips — two-phase: submit fast, poll from frontend.
+  // This avoids 502s caused by Base44's hard serverless function execution timeout.
   step('visuals', 'Generating cinematic video clips...');
 
   const invokeWithTimeout = (fnName, payload, timeoutMs = 300000) => {
@@ -139,40 +140,69 @@ Output the script only.`,
     return Promise.race([call, timer]);
   };
 
-  const scenesWithClips = await Promise.all(scenesWithDirection.map(async (scene, i) => {
+  // Phase 1: Submit all jobs in parallel (each call returns immediately with request_id or direct result)
+  const submissions = await Promise.all(scenesWithDirection.map(async (scene, i) => {
     const directed = scene.directedScene;
-    console.log(`[ClipForge] 🎬 Scene ${i + 1} - ${directed?.mood || 'neutral'} mood, ${directed?.camera_angle || 'medium'} angle`);
-
+    console.log(`[ClipForge] 🎬 Scene ${i + 1} - ${directed?.mood || 'neutral'} mood`);
     const cleanSceneText = (scene.text || '').replace(/\[SCENE\]/gi, '').replace(/\s+/g, ' ').trim();
-
-    let result;
+    const payload = {
+      sceneText: cleanSceneText,
+      sceneIndex: i,
+      duration: scene.duration || 5,
+      mood: directed?.mood || 'neutral',
+      action: directed?.setting || '',
+      visualMode: cinematicMode,
+      visualStyle: projectData.visual_style || 'cinematic',
+      resolution: projectData.resolution || '1080p',
+      provider: projectData.video_provider || null,
+    };
     try {
-      result = await invokeWithTimeout('generateVideoClip', {
-        sceneText: cleanSceneText,
-        sceneIndex: i,
-        duration: scene.duration || 5,
-        mood: directed?.mood || 'neutral',
-        action: directed?.setting || '',
-        visualMode: cinematicMode,
-        visualStyle: projectData.visual_style || 'cinematic',
-        resolution: projectData.resolution || '1080p',
-        provider: projectData.video_provider || null,
-      });
+      const result = await base44.functions.invoke('generateVideoClip', payload);
+      return { scene, i, directed, payload, data: result.data, done: !result.data?.pending };
     } catch (err) {
       const detail = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'unknown';
       throw new Error(`Scene ${i + 1} clip failed: ${detail}`);
     }
+  }));
 
-    const clipData = result.data;
+  // Phase 2: Poll all pending scenes from the frontend every 5s (up to 5 min)
+  const entries = [...submissions];
+  for (let poll = 0; poll < 60; poll++) {
+    const pending = entries.filter(e => !e.done);
+    if (pending.length === 0) break;
+    console.log(`[ClipForge] ⏳ Polling ${pending.length} pending scene(s)... (attempt ${poll + 1})`);
+    await new Promise(r => setTimeout(r, 5000));
+    await Promise.all(pending.map(async (entry) => {
+      try {
+        const pollResult = await base44.functions.invoke('generateVideoClip', {
+          ...entry.payload,
+          request_id: entry.data.request_id,
+          status_url: entry.data.status_url,
+          result_url: entry.data.result_url,
+        });
+        if (!pollResult.data?.pending) {
+          entry.data = pollResult.data;
+          entry.done = true;
+        }
+      } catch (err) {
+        const detail = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'unknown';
+        throw new Error(`Scene ${entry.i + 1} clip failed during polling: ${detail}`);
+      }
+    }));
+  }
 
+  const timedOut = entries.filter(e => !e.done);
+  if (timedOut.length > 0) {
+    throw new Error(`${timedOut.length} scene(s) timed out after 5 minutes. Try again or switch provider.`);
+  }
+
+  const scenesWithClips = entries.map(({ scene, i, directed, data: clipData }) => {
     if (!clipData?.image_url && !clipData?.video_url) {
       const reason = clipData?.failure_reason || 'empty_response';
       console.error(`[ClipForge] ❌ Scene ${i + 1} failed. Reason: ${reason}`);
       throw new Error(`Scene ${i + 1} generation failed: ${reason}. ${clipData?.error || ''}`);
     }
-
     console.log(`[ClipForge] ✅ Scene ${i + 1}: ${clipData.clip_type} via ${clipData.provider_used}`);
-
     return {
       ...scene,
       video_url: clipData.video_url || null,
@@ -182,7 +212,7 @@ Output the script only.`,
       clip_duration: directed?.clip_duration || scene.duration || 5,
       clip_mood: directed?.mood || 'neutral',
     };
-  }));
+  });
 
   // Step 5: Visual consistency check
   step('consistency', 'Ensuring visual consistency...');
