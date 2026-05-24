@@ -287,16 +287,17 @@ Output the script only.`,
       resolution:      projectData.resolution || '1080p',
     };
 
-    console.log('[ClipForge] 🎙 Submitting render job (ElevenLabs + Creatomate)...');
-    const submitResult = await base44.functions.invoke('renderFinalVideo', renderPayload);
+    console.log('[ClipForge] 🎙 Submitting render job via generateVideoClip (ElevenLabs + Creatomate)...');
+    const submitResult = await base44.functions.invoke('generateVideoClip', {
+      ...renderPayload,
+      render_mode: 'render_submit',
+    });
     const submitData = submitResult.data;
 
     if (submitData?.video_url) {
-      // Rare: function returned a direct result
       video_url = submitData.video_url;
       console.log(`[ClipForge] 🎬 Final MP4 ready: ${video_url}`);
     } else if (submitData?.render_id) {
-      // Normal: poll until Creatomate finishes (up to 12 minutes, every 10s)
       step('rendering', 'Rendering final MP4 (this takes 2-5 min)...');
       console.log(`[ClipForge] ⏳ Render job queued: ${submitData.render_id}. Polling...`);
 
@@ -304,7 +305,8 @@ Output the script only.`,
         await new Promise(r => setTimeout(r, 10000));
         console.log(`[ClipForge] 🔄 Render poll ${poll + 1}/72...`);
 
-        const pollResult = await base44.functions.invoke('renderFinalVideo', {
+        const pollResult = await base44.functions.invoke('generateVideoClip', {
+          render_mode: 'render_poll',
           render_id: submitData.render_id,
         });
         const pollData = pollResult.data;
