@@ -99,11 +99,13 @@ Deno.serve(async (req) => {
           'Accept': 'audio/mpeg',
         },
         body: JSON.stringify({
-          text: script.slice(0, 5000), // ElevenLabs free tier limit
-          model_id: 'eleven_turbo_v2_5', // fastest, cheapest model
+          text: script.slice(0, 5000),
+          model_id: 'eleven_multilingual_v2', // highest quality, most natural
           voice_settings: {
-            stability: Math.min(1, Math.max(0, Number(voice_stability) || 0.5)),
+            stability: Math.min(1, Math.max(0, Number(voice_stability) || 0.35)), // lower = more expressive
             similarity_boost: 0.75,
+            style: 0.30,          // emotional expressiveness (0 = neutral, 1 = max)
+            use_speaker_boost: true, // enhances clarity and presence
             speed,
           },
         }),

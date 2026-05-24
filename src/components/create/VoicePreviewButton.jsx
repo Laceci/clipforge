@@ -68,7 +68,7 @@ export default function VoicePreviewButton({ voiceId = null, voiceStyle = 'motiv
         script: sampleText,
         voice_id: idToPreview,
         voice_speed: voiceSpeed,
-        voice_stability: 0.5,
+        voice_stability: 0.35,
       });
 
       const { audio_data, content_type } = result.data || {};
