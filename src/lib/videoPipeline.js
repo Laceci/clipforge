@@ -265,39 +265,68 @@ Output the script only.`,
     throw new Error('No clips were generated. Check your video provider settings or retry.');
   }
 
-  // Step 8: Generate AI voiceover (ElevenLabs) + Step 9: Render final MP4 (Creatomate)
-  // Both happen inside renderFinalVideo. Graceful fallback: if keys not set, preview still works.
+  // Step 8+9: ElevenLabs voiceover + Creatomate MP4 render — two-phase to avoid server timeouts.
+  // Phase 1: submit (EL + upload + queue render) → get render_id immediately.
+  // Phase 2: poll render status from frontend every 10s (renders take 2-10 min).
   step('voiceover', 'Generating AI voiceover...');
-  step('rendering', 'Rendering final MP4 (~1 min)...');
 
   let video_url = null;
   try {
-    console.log('[ClipForge] 🎙 Calling renderFinalVideo (ElevenLabs + Creatomate)...');
-    const renderResult = await invokeWithTimeout('renderFinalVideo', {
+    const renderPayload = {
       script,
-      voice_id:      projectData.voice_id || 'morgan_deep',
-      voice_speed:   projectData.voice_speed || 1.0,
+      voice_id:       projectData.voice_id || 'morgan_deep',
+      voice_speed:    projectData.voice_speed || 1.0,
       scenes: scenesWithCaptions.map(s => ({
         image_url: s.image_url || null,
         video_url: s.video_url || null,
         duration:  s.clip_duration || s.duration || 5,
         caption:   (s.text || s.caption || '').replace(/\[SCENE\]/gi, '').trim(),
       })),
-      caption_style: captionStyle,
+      caption_style:   captionStyle,
       highlight_color: highlightColor,
-      resolution:    projectData.resolution || '1080p',
-    });
+      resolution:      projectData.resolution || '1080p',
+    };
 
-    video_url = renderResult.data?.video_url || null;
+    console.log('[ClipForge] 🎙 Submitting render job (ElevenLabs + Creatomate)...');
+    const submitResult = await base44.functions.invoke('renderFinalVideo', renderPayload);
+    const submitData = submitResult.data;
 
-    if (video_url) {
+    if (submitData?.video_url) {
+      // Rare: function returned a direct result
+      video_url = submitData.video_url;
       console.log(`[ClipForge] 🎬 Final MP4 ready: ${video_url}`);
+    } else if (submitData?.render_id) {
+      // Normal: poll until Creatomate finishes (up to 12 minutes, every 10s)
+      step('rendering', 'Rendering final MP4 (this takes 2-5 min)...');
+      console.log(`[ClipForge] ⏳ Render job queued: ${submitData.render_id}. Polling...`);
+
+      for (let poll = 0; poll < 72; poll++) {
+        await new Promise(r => setTimeout(r, 10000));
+        console.log(`[ClipForge] 🔄 Render poll ${poll + 1}/72...`);
+
+        const pollResult = await base44.functions.invoke('renderFinalVideo', {
+          render_id: submitData.render_id,
+        });
+        const pollData = pollResult.data;
+
+        if (pollData?.video_url) {
+          video_url = pollData.video_url;
+          console.log(`[ClipForge] 🎬 Final MP4 ready: ${video_url}`);
+          break;
+        }
+        if (!pollData?.pending) {
+          console.warn('[ClipForge] ⚠️ Unexpected poll response:', pollData);
+          break;
+        }
+      }
+
+      if (!video_url) {
+        console.warn('[ClipForge] ⚠️ Render timed out after 12 min — preview still available');
+      }
     } else {
-      console.warn('[ClipForge] ⚠️ renderFinalVideo succeeded but returned no video_url');
+      console.warn('[ClipForge] ⚠️ renderFinalVideo returned no render_id:', submitData);
     }
   } catch (renderErr) {
-    // Non-fatal: the scene preview still works via browser TTS + images.
-    // The download button will be hidden until keys are configured.
     console.warn(`[ClipForge] ⚠️ Final render skipped (preview still available): ${renderErr.message}`);
   }
 
