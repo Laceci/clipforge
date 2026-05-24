@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import CaptionRenderer from './CaptionRenderer';
+import { VOICE_PROFILES } from '@/lib/ttsEngine';
 
 /**
  * Cinematic Video Player
@@ -21,6 +22,7 @@ export default function CinematicVideoPlayer({ projectData }) {
   const videoRef = useRef(null);
   const rafRef = useRef(null);
   const startRef = useRef(null);
+  const utteranceRef = useRef(null);
 
   const scenes = projectData.scenes || [];
   const totalDuration = scenes.reduce((s, sc) => s + (sc.duration || sc.clip_duration || 5), 0);
@@ -34,6 +36,54 @@ export default function CinematicVideoPlayer({ projectData }) {
     const timer = setTimeout(() => setIsLoading(false), 800);
     return () => clearTimeout(timer);
   }, [scenes.length]);
+
+  // Actually play/pause the <video> element when isPlaying changes or scene changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlaying) {
+      video.play().catch(e => console.warn('[Player] Video play blocked:', e.message));
+    } else {
+      video.pause();
+    }
+  }, [isPlaying, sceneIdx]);
+
+  // Browser TTS voiceover — speaks each scene's text while it plays
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis || muted) return;
+    window.speechSynthesis.cancel();
+    if (!isPlaying || !scenes[sceneIdx]) return;
+
+    const text = (scenes[sceneIdx].caption || scenes[sceneIdx].text || '')
+      .replace(/\[SCENE\]/gi, '').trim();
+    if (!text) return;
+
+    const speak = () => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voiceId = projectData.voice_id || 'morgan_deep';
+      const profile = VOICE_PROFILES[voiceId] || VOICE_PROFILES.morgan_deep;
+      utterance.rate = Math.min(1.5, Math.max(0.5, (profile?.rate || 1.0) * (projectData.voice_speed || 1.0)));
+      utterance.pitch = profile?.pitch || 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const hints = profile?.nameHints || ['Daniel', 'David'];
+        const match = voices.find(v => hints.some(h => v.name.includes(h)));
+        if (match) utterance.voice = match;
+      }
+      utteranceRef.current = utterance;
+      window.speechSynthesis.speak(utterance);
+    };
+
+    // Chrome requires voices to be loaded first
+    if (window.speechSynthesis.getVoices().length > 0) {
+      speak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = speak;
+    }
+
+    return () => { window.speechSynthesis.cancel(); };
+  }, [isPlaying, sceneIdx, muted]);
 
   const safeIdx = Math.min(sceneIdx, scenes.length - 1);
   const currentScene = scenes[safeIdx];
@@ -104,7 +154,18 @@ export default function CinematicVideoPlayer({ projectData }) {
             className="w-full h-full object-cover"
             muted={muted}
             playsInline
-            onLoadedMetadata={() => console.log('[CinematicPlayer] Video loaded')}
+            onLoadedMetadata={() => setIsLoading(false)}
+            onTimeUpdate={(e) => setSceneTime(e.currentTarget.currentTime)}
+            onEnded={() => {
+              if (safeIdx < scenes.length - 1) {
+                setSceneIdx(i => i + 1);
+                setSceneTime(0);
+              } else {
+                setIsPlaying(false);
+                setSceneIdx(0);
+                setSceneTime(0);
+              }
+            }}
             onError={() => console.warn('[CinematicPlayer] Video playback error')}
           />
         ) : (
