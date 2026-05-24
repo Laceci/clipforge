@@ -100,10 +100,13 @@ async function generateWithFal(prompt, duration, resolution) {
   const apiKey = Deno.env.get('FAL_API_KEY');
   if (!apiKey) throw new Error('FAL_API_KEY not configured. Add it in Base44 → Functions → Environment Variables.');
 
-  const MODEL = 'fal-ai/minimax/video-01';
+  const MODEL = 'fal-ai/minimax/video-01-live';
+
+  // Cap prompt length — fal.ai rejects requests over ~500 chars
+  const safePrompt = `${prompt} Vertical portrait orientation, 9:16 aspect ratio, cinematic.`.slice(0, 500);
 
   console.log(`[ClipForge/fal] 🎬 MiniMax text-to-video | duration hint: ${duration}s`);
-  console.log(`[ClipForge/fal] 📝 Prompt: "${prompt.slice(0, 80)}..."`);
+  console.log(`[ClipForge/fal] 📝 Prompt (${safePrompt.length} chars): "${safePrompt.slice(0, 80)}..."`);
 
   // ── 1. Submit to fal.ai async queue ────────────────────────────────────────
   const submitRes = await fetch(`https://queue.fal.run/${MODEL}`, {
@@ -113,9 +116,8 @@ async function generateWithFal(prompt, duration, resolution) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      // Append vertical format hint — MiniMax respects this in the prompt
-      prompt: `${prompt} Vertical portrait orientation, 9:16 aspect ratio, cinematic.`,
-      prompt_optimizer: true, // MiniMax feature: auto-enhances weak prompts
+      prompt: safePrompt,
+      prompt_optimizer: true,
     }),
   });
 
@@ -125,7 +127,7 @@ async function generateWithFal(prompt, duration, resolution) {
     const body = await submitRes.text();
     if (submitRes.status === 401) throw new Error('FAL_API_KEY is invalid or expired.');
     if (submitRes.status === 402) throw new Error('fal.ai credits exhausted. Top up at fal.ai/dashboard.');
-    if (submitRes.status === 422) throw new Error(`fal.ai rejected the request: ${body.slice(0, 150)}`);
+    if (submitRes.status === 422) throw new Error(`Invalid request payload sent to fal.ai: ${body.slice(0, 200)}`);
     throw new Error(`fal.ai ${submitRes.status}: ${body.slice(0, 200)}`);
   }
 
