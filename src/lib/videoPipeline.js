@@ -131,7 +131,7 @@ Output the script only.`,
   // Step 4: Generate cinematic video clips via backend function
   step('visuals', 'Generating cinematic video clips...');
 
-  const invokeWithTimeout = (fnName, payload, timeoutMs = 90000) => {
+  const invokeWithTimeout = (fnName, payload, timeoutMs = 300000) => {
     const call = base44.functions.invoke(fnName, payload);
     const timer = new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`${fnName} timed out after ${timeoutMs / 1000}s — try again or switch to a different provider`)), timeoutMs)
