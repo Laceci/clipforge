@@ -510,7 +510,7 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
               ? '⚠️ Generation failed. Check your topic and retry.'
               : projectData.video_url
                 ? '✅ Your MP4 is ready. Click Download to save it.'
-                : '⚠️ MP4 download requires ELEVENLABS_API_KEY + CREATOMATE_API_KEY in Base44 env vars. Preview plays via browser.'}
+                : '▶ Preview ready — press Play above to watch with AI voiceover. MP4 export coming soon.'}
           </div>
 
           {/* Rendered MP4 player — shown when final video is available */}
@@ -564,7 +564,7 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
                     onClick={onExport}
                     variant="outline"
                     className="w-full rounded-xl gap-2 border-border text-muted-foreground"
-                    title="Configure ELEVENLABS_API_KEY and CREATOMATE_API_KEY to enable MP4 download"
+                    title="MP4 export requires Creatomate render pipeline"
                   >
                     <Download className="w-4 h-4" /> Save Project (no MP4 yet)
                   </Button>

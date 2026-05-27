@@ -62,13 +62,13 @@ export default function VoicePreviewButton({ voiceId = null, voiceStyle = 'motiv
     const idToPreview = voiceId || voiceStyle;
     const sampleText = PREVIEW_SAMPLES[idToPreview] || DEFAULT_SAMPLE;
 
-    // Try ElevenLabs first
+    // Try TTS via generateVideoClip
     try {
-      const result = await base44.functions.invoke('generateVoiceover', {
+      const result = await base44.functions.invoke('generateVideoClip', {
+        voice_mode: 'tts',
         script: sampleText,
         voice_id: idToPreview,
         voice_speed: voiceSpeed,
-        voice_stability: 0.35,
       });
 
       const { audio_data, content_type } = result.data || {};

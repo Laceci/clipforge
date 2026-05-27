@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Play, Pause, Check, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { previewVoice, stopSpeech } from '@/lib/ttsEngine';
+import { stopSpeech } from '@/lib/ttsEngine';
 import { VOICE_LIBRARY, validateVoiceSelection, logVoiceSelection } from '@/lib/voiceIdentity';
+import { base44 } from '@/api/base44Client';
 
 // Map library voices to component format for backward compatibility
 const VOICES = VOICE_LIBRARY.map(voice => ({
@@ -66,7 +67,10 @@ export function getVoiceById(id) {
 export default function VoiceAvatarPicker({ value, onChange }) {
   const [activeTab, setActiveTab] = useState('all');
   const [playingId, setPlayingId] = useState(null);
+  const [loadingId, setLoadingId] = useState(null);
   const [validationWarning, setValidationWarning] = useState(null);
+  const audioRef = useRef(null);
+  const blobUrlRef = useRef(null);
 
   const selectedId = value || VOICES[0].id;
 
@@ -85,23 +89,58 @@ export default function VoiceAvatarPicker({ value, onChange }) {
 
   const filtered = activeTab === 'all' ? VOICES : VOICES.filter(v => v.category === activeTab);
 
-  const handlePreview = (e, voice) => {
+  const stopCurrent = () => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
+    setPlayingId(null);
+  };
+
+  const handlePreview = async (e, voice) => {
     e.stopPropagation();
-    // Validate before preview
-    const validation = validateVoiceSelection(voice.id);
-    if (!validation.valid) {
-      setValidationWarning(`Cannot preview: ${validation.warnings.join(', ')}`);
-      return;
+
+    if (playingId === voice.id) { stopCurrent(); return; }
+    stopCurrent();
+
+    const voiceData = VOICE_LIBRARY.find(v => v.id === voice.id);
+    const text = voiceData?.previewText || 'Welcome to ClipForge. Your video is ready to create.';
+
+    setLoadingId(voice.id);
+    try {
+      const result = await base44.functions.invoke('generateVideoClip', {
+        voice_mode: 'tts',
+        script: text,
+        voice_id: voice.id,
+        voice_speed: voice.speed || 1.0,
+      });
+
+      const audioData = result?.data?.audio_data;
+      if (!audioData) throw new Error('No audio returned');
+
+      const binary = atob(audioData);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      setLoadingId(null);
+      setPlayingId(voice.id);
+      logVoiceSelection(voice.id, 'Preview started via ElevenLabs');
+      audio.play();
+      audio.onended = () => stopCurrent();
+      audio.onerror = () => stopCurrent();
+    } catch {
+      setLoadingId(null);
+      // Fallback to browser TTS
+      if (window.speechSynthesis) {
+        setPlayingId(voice.id);
+        const utt = new SpeechSynthesisUtterance(text);
+        utt.onend = () => setPlayingId(null);
+        window.speechSynthesis.speak(utt);
+      }
     }
-    if (playingId === voice.id) {
-      stopSpeech();
-      setPlayingId(null);
-      return;
-    }
-    stopSpeech();
-    setPlayingId(voice.id);
-    logVoiceSelection(voice.id, 'Preview started');
-    previewVoice(voice.id, voice.speed, voice.pitch).then(() => setPlayingId(null));
   };
 
   const handleSelect = (voice) => {
@@ -180,16 +219,18 @@ export default function VoiceAvatarPicker({ value, onChange }) {
                   onClick={(e) => handlePreview(e, voice)}
                   className={cn(
                     'absolute inset-0 flex items-center justify-center transition-all',
-                    isPlaying ? 'bg-black/40' : 'bg-black/0 group-hover:bg-black/30'
+                    isPlaying || loadingId === voice.id ? 'bg-black/40' : 'bg-black/0 group-hover:bg-black/30'
                   )}
                 >
                   <div className={cn(
                     'w-8 h-8 rounded-full flex items-center justify-center transition-all',
-                    isPlaying ? 'bg-primary opacity-100' : 'bg-black/60 opacity-0 group-hover:opacity-100'
+                    isPlaying || loadingId === voice.id ? 'bg-primary opacity-100' : 'bg-black/60 opacity-0 group-hover:opacity-100'
                   )}>
-                    {isPlaying
-                      ? <Pause className="w-3.5 h-3.5 text-primary-foreground" />
-                      : <Play className="w-3.5 h-3.5 text-white ml-0.5" />}
+                    {loadingId === voice.id
+                      ? <Loader2 className="w-3.5 h-3.5 text-primary-foreground animate-spin" />
+                      : isPlaying
+                        ? <Pause className="w-3.5 h-3.5 text-primary-foreground" />
+                        : <Play className="w-3.5 h-3.5 text-white ml-0.5" />}
                   </div>
                 </button>
 

@@ -25,16 +25,16 @@ export default function Pricing() {
             Simple Pricing for Every Creator
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Start free, scale as you grow. Pay only for what you use.
+            Start with a free 7-day trial (14 videos). Scale as you grow.
           </p>
         </div>
 
         <PricingCards />
 
         <div className="mt-16 space-y-8">
-          <CTABanner 
+          <CTABanner
             title="Start Your Free Trial"
-            subtitle="Get 14 days full access. No credit card required."
+            subtitle="7 days free — 14 videos included. No credit card required."
             cta="Create Your First Video"
           />
 

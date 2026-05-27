@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -71,6 +71,23 @@ export default function Dashboard() {
     mutationFn: (id) => base44.entities.Project.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
   });
+
+  // Auto-fail projects stuck in generating/rendering for more than 15 minutes
+  useEffect(() => {
+    if (!projects.length) return;
+    const TIMEOUT_MS = 15 * 60 * 1000;
+    const now = Date.now();
+    const stale = projects.filter(p => {
+      if (p.status !== 'generating' && p.status !== 'rendering') return false;
+      const lastUpdate = new Date(p.updated_date || p.created_date).getTime();
+      return now - lastUpdate > TIMEOUT_MS;
+    });
+    stale.forEach(p => {
+      base44.entities.Project.update(p.id, { status: 'failed' })
+        .then(() => queryClient.invalidateQueries({ queryKey: ['projects'] }))
+        .catch(() => {});
+    });
+  }, [projects]);
 
   const handleFilter = (filterId) => {
     setActiveFilter(prev => prev === filterId ? 'all' : filterId);

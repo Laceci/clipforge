@@ -1,59 +1,47 @@
+// @ts-nocheck
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.23';
 
-/**
- * ClipForge — AI Voiceover Generator
- * Calls ElevenLabs text-to-speech and returns raw MP3 audio.
- * Maps internal ClipForge voice IDs to real ElevenLabs voice IDs.
- *
- * Phase 2: This can be used for in-browser audio preview before rendering.
- * Phase 1: Called internally by renderFinalVideo.
- */
-
-// ─── Internal voice ID → ElevenLabs voice ID mapping ─────────────────────────
-// All voices below are ElevenLabs pre-made voices (available on free tier).
-const ELEVENLABS_VOICE_MAP: Record<string, string> = {
-  // Storytelling
-  morgan_deep:     'nPczCjzI2devNBz1zQrb', // Brian  — deep narrator
-  alex_warm:       'ErXwobaYiN019PkySvjV',  // Antoni — warm American male
-  claire_soothing: 'EXAVITQu4vr4xnSDxMaL', // Bella  — warm American female
-  nova_clear:      '21m00Tcm4TlvDq8ikWAM',  // Rachel — clear American female
-
-  // Motivational
-  titan_power:     'VR6AewLTigWG4xSOukaG',  // Arnold  — crisp, energetic
-  blaze_bold:      'N2lVS1w4EtoT3dr4eOWO',  // Callum  — intense American male
-  sophia_inspire:  'pMsXgVXv3BLzUgSXRplE',  // Serena  — pleasant female
-  zara_fierce:     'AZnzlk1XvdvUeBnXmlld',  // Domi    — strong American female
-
-  // Emotional
-  eli_tender:      'GBv7mTt0atIp3Br8iCZE',  // Thomas  — calm, tender male
-  luna_warm:       'EXAVITQu4vr4xnSDxMaL',  // Bella   — warm female
-  sage_gentle:     '21m00Tcm4TlvDq8ikWAM',  // Rachel  — gentle female
-
-  // Calm / Meditation
-  zen_deep:        'TxGEqnHWrfWFTfGW9XjX',  // Josh    — deep, calm male
-  aurora_soft:     'pFZP5JQG7iQjIQuC4Bku',  // Lily    — warm British female
-  reed_peaceful:   'GBv7mTt0atIp3Br8iCZE',  // Thomas  — calm male
-
-  // Educational
-  marcus_clear:    'TX3LPaxmHKxFdv7VOQHJ',  // Liam    — neutral American male
-  ivy_crisp:       '21m00Tcm4TlvDq8ikWAM',  // Rachel  — crisp female
-  theo_smart:      'IKne3meq5aSn9XLyUdCD',  // Charlie — natural Australian male
-
-  // Dark / Intense
-  raven_dark:      'TxGEqnHWrfWFTfGW9XjX',  // Josh    — deep dark male
-  shadow_intense:  'nPczCjzI2devNBz1zQrb',  // Brian   — deep intense
-  void_eerie:      '21m00Tcm4TlvDq8ikWAM',  // Rachel  — eerie female cadence
-
-  // UGC / Casual
-  jake_casual:     'IKne3meq5aSn9XLyUdCD',  // Charlie — natural, conversational
-  mia_friendly:    'EXAVITQu4vr4xnSDxMaL',  // Bella   — friendly female
-  kai_trendy:      '29vD33N1CtxCmqQRPOHJ',  // Drew    — well-rounded male
-
-  // Professional / Corporate
-  sterling_pro:    'onwK4e9ZLuTAKqWW03F9',  // Daniel  — authoritative British male
-  diana_executive: 'pMsXgVXv3BLzUgSXRplE',  // Serena  — professional female
+// OpenAI voice mapping (natural, non-robotic voices)
+const OPENAI_VOICE_MAP = {
+  morgan_deep:     'onyx',    // deep narrator male
+  alex_warm:       'echo',    // warm American male
+  claire_soothing: 'nova',    // warm female
+  nova_clear:      'shimmer', // clear female
+  titan_power:     'onyx',    // powerful male
+  blaze_bold:      'echo',    // bold male
+  sophia_inspire:  'nova',    // inspiring female
+  zara_fierce:     'alloy',   // strong female
+  zen_deep:        'onyx',    // calm deep male
+  aurora_soft:     'shimmer', // soft female
+  marcus_clear:    'echo',    // clear male
+  ivy_crisp:       'nova',    // crisp female
+  sterling_pro:    'onyx',    // professional male
+  diana_executive: 'shimmer', // executive female
+  jake_casual:     'fable',   // casual male
+  mia_friendly:    'nova',    // friendly female
 };
-const DEFAULT_ELEVENLABS_VOICE = '21m00Tcm4TlvDq8ikWAM'; // Rachel (safe all-purpose default)
+const DEFAULT_OPENAI_VOICE = 'onyx';
+
+// ElevenLabs fallback mapping
+const ELEVENLABS_VOICE_MAP = {
+  morgan_deep:     'nPczCjzI2devNBz1zQrb',
+  alex_warm:       'ErXwobaYiN019PkySvjV',
+  claire_soothing: 'EXAVITQu4vr4xnSDxMaL',
+  nova_clear:      '21m00Tcm4TlvDq8ikWAM',
+  titan_power:     'VR6AewLTigWG4xSOukaG',
+  blaze_bold:      'N2lVS1w4EtoT3dr4eOWO',
+  sophia_inspire:  'pMsXgVXv3BLzUgSXRplE',
+  zara_fierce:     'AZnzlk1XvdvUeBnXmlld',
+  zen_deep:        'TxGEqnHWrfWFTfGW9XjX',
+  aurora_soft:     'pFZP5JQG7iQjIQuC4Bku',
+  marcus_clear:    'TX3LPaxmHKxFdv7VOQHJ',
+  ivy_crisp:       '21m00Tcm4TlvDq8ikWAM',
+  sterling_pro:    'onwK4e9ZLuTAKqWW03F9',
+  diana_executive: 'pMsXgVXv3BLzUgSXRplE',
+  jake_casual:     'IKne3meq5aSn9XLyUdCD',
+  mia_friendly:    'EXAVITQu4vr4xnSDxMaL',
+};
+const DEFAULT_ELEVENLABS_VOICE = '21m00Tcm4TlvDq8ikWAM';
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
@@ -62,70 +50,94 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const {
-      script,
-      voice_id,
-      voice_speed = 1.0,
-      voice_stability = 0.5,
-    } = await req.json();
+    const body = await req.json();
+    const script = (body.script || '').trim();
+    const voice_id = body.voice_id || 'morgan_deep';
+    const voice_speed = Math.min(1.2, Math.max(0.7, Number(body.voice_speed) || 1.0));
+    const voice_stability = Math.min(1, Math.max(0, Number(body.voice_stability) || 0.35));
 
-    if (!script?.trim()) {
-      return Response.json({ error: 'script is required' }, { status: 400 });
+    if (!script) return Response.json({ error: 'script is required' }, { status: 400 });
+
+    const openaiKey = Deno.env.get('OPENAI_API_KEY');
+    const elKey = Deno.env.get('ELEVENLABS_API_KEY');
+
+    // ── Primary: OpenAI TTS (most natural sounding) ──────────────────────
+    if (openaiKey) {
+      const openaiVoice = OPENAI_VOICE_MAP[voice_id] || DEFAULT_OPENAI_VOICE;
+      console.log('[Voiceover] Using OpenAI TTS, voice:', openaiVoice);
+
+      const res = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + openaiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'tts-1-hd',
+          input: script.slice(0, 4096),
+          voice: openaiVoice,
+          speed: voice_speed,
+          response_format: 'mp3',
+        }),
+      });
+
+      if (res.ok) {
+        const audioBuffer = await res.arrayBuffer();
+        const uint8 = new Uint8Array(audioBuffer);
+        let binary = '';
+        for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+        const audioBase64 = btoa(binary);
+        console.log('[Voiceover] OpenAI TTS success:', (audioBuffer.byteLength / 1024).toFixed(1), 'KB');
+        return Response.json({
+          audio_data: audioBase64,
+          content_type: 'audio/mpeg',
+          size_bytes: audioBuffer.byteLength,
+          voice_used: openaiVoice,
+          provider: 'openai',
+          speed: voice_speed,
+        });
+      }
+      const errText = await res.text();
+      console.warn('[Voiceover] OpenAI TTS failed:', res.status, errText.slice(0, 100));
     }
 
-    const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
-    if (!apiKey) {
-      throw new Error(
-        'ELEVENLABS_API_KEY is not configured. ' +
-        'Add it in Base44 → Functions → Environment Variables.'
-      );
+    // ── Fallback: ElevenLabs ──────────────────────────────────────────────
+    if (!elKey) {
+      throw new Error('No TTS API key configured. Add OPENAI_API_KEY or ELEVENLABS_API_KEY in Base44 Secrets.');
     }
 
     const elVoiceId = ELEVENLABS_VOICE_MAP[voice_id] || DEFAULT_ELEVENLABS_VOICE;
+    console.log('[Voiceover] Falling back to ElevenLabs, voice:', elVoiceId);
 
-    // ElevenLabs speed range: 0.7 – 1.2
-    const speed = Math.min(1.2, Math.max(0.7, Number(voice_speed) || 1.0));
-
-    console.log(`[Voiceover] 🎤 Voice: "${voice_id}" → EL: ${elVoiceId} | speed: ${speed}`);
-    console.log(`[Voiceover] 📝 Script: ${script.length} chars`);
-
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${elVoiceId}?output_format=mp3_44100_128`,
+    const elRes = await fetch(
+      'https://api.elevenlabs.io/v1/text-to-speech/' + elVoiceId + '?output_format=mp3_44100_128',
       {
         method: 'POST',
         headers: {
-          'xi-api-key': apiKey,
+          'xi-api-key': elKey,
           'Content-Type': 'application/json',
           'Accept': 'audio/mpeg',
         },
         body: JSON.stringify({
           text: script.slice(0, 5000),
-          model_id: 'eleven_multilingual_v2', // highest quality, most natural
+          model_id: 'eleven_multilingual_v2',
           voice_settings: {
-            stability: Math.min(1, Math.max(0, Number(voice_stability) || 0.35)), // lower = more expressive
+            stability: voice_stability,
             similarity_boost: 0.75,
-            style: 0.30,          // emotional expressiveness (0 = neutral, 1 = max)
-            use_speaker_boost: true, // enhances clarity and presence
-            speed,
+            style: 0.30,
+            use_speaker_boost: true,
+            speed: voice_speed,
           },
         }),
       }
     );
 
-    console.log(`[Voiceover] ElevenLabs status: ${response.status}`);
-
-    if (!response.ok) {
-      const errBody = await response.text();
-      if (response.status === 401) throw new Error('ELEVENLABS_API_KEY is invalid or expired.');
-      if (response.status === 422) throw new Error(`ElevenLabs rejected the request: ${errBody.slice(0, 200)}`);
-      if (response.status === 429) throw new Error('ElevenLabs rate limit or character quota exceeded. Check your plan at elevenlabs.io.');
-      throw new Error(`ElevenLabs error ${response.status}: ${errBody.slice(0, 200)}`);
+    if (!elRes.ok) {
+      const errBody = await elRes.text();
+      throw new Error('ElevenLabs error ' + elRes.status + ': ' + errBody.slice(0, 200));
     }
 
-    const audioBuffer = await response.arrayBuffer();
-    console.log(`[Voiceover] ✅ Audio generated: ${(audioBuffer.byteLength / 1024).toFixed(1)} KB`);
-
-    // Encode as base64 so the frontend SDK can consume it via invoke()
+    const audioBuffer = await elRes.arrayBuffer();
     const uint8 = new Uint8Array(audioBuffer);
     let binary = '';
     for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
@@ -136,11 +148,12 @@ Deno.serve(async (req) => {
       content_type: 'audio/mpeg',
       size_bytes: audioBuffer.byteLength,
       voice_used: elVoiceId,
-      speed,
+      provider: 'elevenlabs',
+      speed: voice_speed,
     });
 
   } catch (error) {
-    console.error('[Voiceover] ❌ Error:', error.message);
+    console.error('[Voiceover] Error:', error.message);
     return Response.json({ error: error.message }, { status: 500 });
   }
 });

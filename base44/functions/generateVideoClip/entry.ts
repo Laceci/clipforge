@@ -1,9 +1,74 @@
+// @ts-nocheck
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.23';
 
-/**
- * ClipForge Video Clip Generator
- * Supports: fal.ai (video), Runway ML, Luma AI, with image fallback
- */
+const FAL_QUEUE_BASE = 'https://queue.fal.run';
+const VIDEO_MODEL = 'fal-ai/kling-video/v1.6/standard/text-to-video';
+const HF_BASE = 'https://api.higgsfield.ai';
+
+// OpenAI TTS voice map
+const OPENAI_VOICE_MAP = {
+  morgan_deep: 'onyx', alex_warm: 'echo', claire_soothing: 'nova',
+  nova_clear: 'shimmer', titan_power: 'onyx', blaze_bold: 'echo',
+  sophia_inspire: 'nova', zara_fierce: 'alloy', zen_deep: 'onyx',
+  aurora_soft: 'shimmer', marcus_clear: 'echo', ivy_crisp: 'nova',
+  sterling_pro: 'onyx', diana_executive: 'shimmer', jake_casual: 'fable', mia_friendly: 'nova',
+  // Extended voice library
+  eli_tender: 'echo', luna_warm: 'nova', sage_gentle: 'shimmer',
+  reed_peaceful: 'onyx', theo_smart: 'echo', raven_dark: 'onyx',
+  shadow_intense: 'onyx', void_eerie: 'shimmer', kai_trendy: 'fable',
+};
+
+// ElevenLabs voice map — covers every voice in VOICE_LIBRARY
+const EL_VOICE_MAP = {
+  morgan_deep: 'nPczCjzI2devNBz1zQrb', alex_warm: 'ErXwobaYiN019PkySvjV',
+  claire_soothing: 'EXAVITQu4vr4xnSDxMaL', nova_clear: '21m00Tcm4TlvDq8ikWAM',
+  titan_power: 'VR6AewLTigWG4xSOukaG', blaze_bold: 'N2lVS1w4EtoT3dr4eOWO',
+  sophia_inspire: 'pMsXgVXv3BLzUgSXRplE', zara_fierce: 'AZnzlk1XvdvUeBnXmlld',
+  zen_deep: 'TxGEqnHWrfWFTfGW9XjX', aurora_soft: 'pFZP5JQG7iQjIQuC4Bku',
+  marcus_clear: 'TX3LPaxmHKxFdv7VOQHJ', ivy_crisp: '21m00Tcm4TlvDq8ikWAM',
+  sterling_pro: 'onwK4e9ZLuTAKqWW03F9', diana_executive: 'pMsXgVXv3BLzUgSXRplE',
+  jake_casual: 'IKne3meq5aSn9XLyUdCD', mia_friendly: 'EXAVITQu4vr4xnSDxMaL',
+  // Extended voice library
+  eli_tender: 'ErXwobaYiN019PkySvjV',   // Antoni — warm male
+  luna_warm: 'pFZP5JQG7iQjIQuC4Bku',    // Freya — warm female
+  sage_gentle: 'EXAVITQu4vr4xnSDxMaL',  // Bella — gentle female
+  reed_peaceful: 'TxGEqnHWrfWFTfGW9XjX',// Arnold — calm deep male
+  theo_smart: 'TX3LPaxmHKxFdv7VOQHJ',   // Liam — clear smart male
+  raven_dark: 'nPczCjzI2devNBz1zQrb',   // Brian — dark deep male
+  shadow_intense: 'VR6AewLTigWG4xSOukaG',// Sam — intense male
+  void_eerie: 'AZnzlk1XvdvUeBnXmlld',   // Domi — eerie female
+  kai_trendy: 'IKne3meq5aSn9XLyUdCD',   // Dave — casual trendy male
+};
+
+function toBase64(buffer) {
+  const uint8 = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+  return btoa(binary);
+}
+
+const STOP_WORDS = new Set(['a','an','the','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','shall','can','this','that','these','those','with','from','into','through','during','before','after','above','below','to','of','in','on','at','by','for','and','or','but','not','so','yet','both','either','each','few','more','most','other','some','such','than','then','too','very','just','about','over','when','where','who','which','how','its','it','they','them','their','we','our','you','your','he','she','him','her','his','my','what']);
+
+function extractKeywords(text: string): string {
+  const words = text.toLowerCase()
+    .replace(/\[scene[^\]]*\]/gi, '')
+    .replace(/[^\w\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !STOP_WORDS.has(w));
+  const unique = [...new Set(words)];
+  return unique.slice(0, 4).join(' ') || text.slice(0, 50);
+}
+
+// Reads HF_KEY (key_id:key_secret) or HF_API_KEY + HF_API_SECRET
+function getHiggsfieldToken() {
+  const hfKey = Deno.env.get('HF_KEY');
+  if (hfKey) return hfKey;
+  const id = Deno.env.get('HF_API_KEY');
+  const secret = Deno.env.get('HF_API_SECRET');
+  if (id && secret) return `${id}:${secret}`;
+  return null;
+}
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
 
@@ -11,473 +76,296 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const payload = await req.json();
-    const {
-      sceneText,
-      sceneIndex,
-      duration = 5,
-      mood = 'neutral',
-      action = '',
-      visualMode = 'cinematic_realism',
-      visualStyle = 'cinematic',
-      resolution = '1080p',
-      provider = null, // override from settings
-    } = payload;
+    const body = await req.json();
+    const falKey = Deno.env.get('FAL_API_KEY');
 
-    // Determine which provider to use
-    const selectedProvider = provider
-      || Deno.env.get('VIDEO_PROVIDER')
-      || 'image_fallback';
+    // ── MODE: TTS voiceover ───────────────────────────────────────────────
+    if (body.voice_mode === 'tts') {
+      const script = (body.script || '').trim();
+      if (!script) return Response.json({ error: 'script required' }, { status: 400 });
 
-    console.log(`[ClipForge] 🎬 Scene ${sceneIndex} | Provider: ${selectedProvider}`);
-    console.log(`[ClipForge] 📝 Prompt: "${sceneText.slice(0, 60)}..."`);
-    console.log(`[ClipForge] ⚙️ Duration: ${duration}s | Mood: ${mood} | Style: ${visualStyle}`);
+      const voiceId = body.voice_id || 'morgan_deep';
+      const speed = Math.min(1.2, Math.max(0.7, Number(body.voice_speed) || 1.0));
+      const openaiKey = Deno.env.get('OPENAI_API_KEY');
+      const elKey = Deno.env.get('ELEVENLABS_API_KEY');
 
-    const visualPrompt = buildVisualPrompt(sceneText, mood, action, visualMode, visualStyle);
+      // Try ElevenLabs first — most expressive, unique voice per persona
+      if (elKey) {
+        const elVoice = EL_VOICE_MAP[voiceId] || '21m00Tcm4TlvDq8ikWAM';
+        console.log('[TTS] ElevenLabs, voice:', elVoice, 'persona:', voiceId);
+        const res = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + elVoice + '?output_format=mp3_44100_128', {
+          method: 'POST',
+          headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+          body: JSON.stringify({
+            text: script.slice(0, 5000),
+            model_id: 'eleven_multilingual_v2',
+            voice_settings: { stability: 0.35, similarity_boost: 0.75, style: 0.30, use_speaker_boost: true, speed: speed },
+          }),
+        });
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          console.log('[TTS] ElevenLabs success:', (buf.byteLength / 1024).toFixed(1), 'KB');
+          return Response.json({ audio_data: toBase64(buf), content_type: 'audio/mpeg', provider: 'elevenlabs' });
+        }
+        const errText = await res.text();
+        console.warn('[TTS] ElevenLabs failed:', res.status, errText.slice(0, 100));
+      }
 
-    let result;
+      // Fallback: OpenAI TTS
+      if (openaiKey) {
+        const voice = OPENAI_VOICE_MAP[voiceId] || 'onyx';
+        console.log('[TTS] OpenAI fallback, voice:', voice);
+        const res = await fetch('https://api.openai.com/v1/audio/speech', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + openaiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'tts-1-hd', input: script.slice(0, 4096), voice: voice, speed: speed, response_format: 'mp3' }),
+        });
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          console.log('[TTS] OpenAI success:', (buf.byteLength / 1024).toFixed(1), 'KB');
+          return Response.json({ audio_data: toBase64(buf), content_type: 'audio/mpeg', provider: 'openai' });
+        }
+        console.warn('[TTS] OpenAI failed:', res.status);
+      }
 
-    if (selectedProvider === 'fal_video') {
-      result = await generateWithFal(visualPrompt, duration, resolution);
-    } else if (selectedProvider === 'runway') {
-      result = await generateWithRunway(visualPrompt, duration, resolution);
-    } else if (selectedProvider === 'luma') {
-      result = await generateWithLuma(visualPrompt, duration);
-    } else if (selectedProvider === 'higgsfield') {
-      result = await generateWithHiggsfield(base44, visualPrompt, sceneText, duration);
-    } else {
-      // Default: use ClipForge built-in image generation (always works)
-      result = await generateWithImageFallback(base44, visualPrompt, sceneText);
+      return Response.json({ error: 'No TTS key available (add ELEVENLABS_API_KEY or OPENAI_API_KEY)' }, { status: 500 });
     }
 
-    console.log(`[ClipForge] ✅ Scene ${sceneIndex} done | URL: ${result.url}`);
-    console.log(`[ClipForge] 📊 Type: ${result.type} | Provider used: ${result.provider}`);
+    // ── MODE: Higgsfield connection test ─────────────────────────────────
+    if (body.hf_test_connection) {
+      const token = getHiggsfieldToken();
+      if (!token) {
+        return Response.json({ connected: false, error: 'HF_KEY not set in Base44 Secrets (format: key_id:key_secret)' });
+      }
+      try {
+        // Lightweight GET to validate credentials without generating video
+        const res = await fetch(`${HF_BASE}/v1/generations?limit=1`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+        });
+        if (res.status === 401 || res.status === 403) {
+          const body = await res.text().catch(() => '');
+          return Response.json({ connected: false, error: `Auth failed (${res.status}) — check HF_KEY format: key_id:key_secret` });
+        }
+        // 200 or even 404/400 means the token was accepted
+        console.log('[HF] Connection test:', res.status);
+        return Response.json({ connected: true, http_status: res.status });
+      } catch (e) {
+        return Response.json({ connected: false, error: `Network error: ${e.message}` });
+      }
+    }
 
-    return Response.json({
-      video_url: result.type === 'video' ? result.url : null,
-      image_url: result.url,
-      scene_index: sceneIndex,
-      duration,
-      mood,
-      clip_type: result.type === 'video' ? 'cinematic-video' : 'image-preview',
-      provider_used: result.provider,
-      status: 'generated',
+    // ── MODE: Poll Higgsfield job ─────────────────────────────────────────
+    if (body.request_id && body.hf_status_url) {
+      const token = getHiggsfieldToken();
+      if (!token) return Response.json({ error: 'HF_KEY not set' }, { status: 500 });
+
+      const statusRes = await fetch(body.hf_status_url, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+      });
+
+      if (!statusRes.ok) {
+        const errText = await statusRes.text();
+        console.warn('[HF] Poll error:', statusRes.status, errText.slice(0, 100));
+        return Response.json({ pending: true, request_id: body.request_id, hf_status_url: body.hf_status_url });
+      }
+
+      const data = await statusRes.json();
+      const status = (data.status || '').toLowerCase();
+      console.log('[HF] Poll status:', status, 'for job:', body.request_id);
+
+      if (status === 'completed' || status === 'succeeded' || status === 'success') {
+        const videoUrl = data.video_url || data.output?.video_url || data.result?.video_url || data.url;
+        if (videoUrl) {
+          return Response.json({ video_url: videoUrl, image_url: videoUrl, clip_type: 'cinematic-video', provider_used: 'higgsfield', pending: false });
+        }
+        return Response.json({ failure_reason: 'no_video_url_in_result', pending: false });
+      }
+
+      if (status === 'failed' || status === 'error') {
+        const errMsg = data.error || data.message || 'higgsfield_generation_failed';
+        console.error('[HF] Generation failed:', errMsg);
+        return Response.json({ failure_reason: 'higgsfield_failed', error: errMsg, pending: false });
+      }
+
+      // Still processing (pending / processing / queued / running)
+      return Response.json({ pending: true, request_id: body.request_id, hf_status_url: body.hf_status_url });
+    }
+
+    // ── MODE: Poll existing fal.ai job ───────────────────────────────────
+    if (body.request_id && body.status_url) {
+      if (!falKey) return Response.json({ error: 'FAL_API_KEY not set' }, { status: 500 });
+
+      const statusRes = await fetch(body.status_url, { headers: { 'Authorization': 'Key ' + falKey } });
+      const statusData = await statusRes.json();
+
+      if (statusData.status === 'COMPLETED') {
+        const resultRes = await fetch(body.result_url, { headers: { 'Authorization': 'Key ' + falKey } });
+        const resultData = await resultRes.json();
+        const videoUrl = resultData.video && resultData.video.url ? resultData.video.url : resultData.url;
+        if (videoUrl) {
+          return Response.json({ video_url: videoUrl, image_url: videoUrl, clip_type: 'cinematic-video', provider_used: 'kling-v1.6', pending: false });
+        }
+        return Response.json({ failure_reason: 'no_video_url_in_result', pending: false });
+      }
+
+      if (statusData.status === 'FAILED') {
+        return Response.json({ failure_reason: statusData.error || 'kling_failed', pending: false });
+      }
+
+      return Response.json({ pending: true, request_id: body.request_id, status_url: body.status_url, result_url: body.result_url });
+    }
+
+    const provider = body.provider || Deno.env.get('VIDEO_PROVIDER') || 'image_fallback';
+
+    // ── MODE: Higgsfield video generation ────────────────────────────────
+    if (provider === 'higgsfield') {
+      const token = getHiggsfieldToken();
+      if (!token) {
+        return Response.json({
+          failure_reason: 'missing_api_key',
+          error: 'Higgsfield credentials not set. Add HF_KEY (format: key_id:key_secret) in Base44 Secrets.',
+        }, { status: 500 });
+      }
+
+      const prompt = (body.sceneText || body.prompt || '').slice(0, 500);
+      const duration = body.duration || 5;
+
+      console.log('[HF] Submitting text-to-video:', prompt.slice(0, 80));
+
+      // POST to Higgsfield DoP model (Director of Photography — cinematic quality)
+      const submitRes = await fetch(`${HF_BASE}/v1/generation/dop`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+          duration: duration,
+          aspect_ratio: '9:16',
+          motion_strength: 'medium',
+        }),
+      });
+
+      if (submitRes.status === 401 || submitRes.status === 403) {
+        return Response.json({
+          failure_reason: 'invalid_api_key',
+          error: 'Higgsfield auth failed — check HF_KEY format: key_id:key_secret',
+        }, { status: 401 });
+      }
+
+      if (!submitRes.ok) {
+        const errText = await submitRes.text();
+        throw new Error('Higgsfield ' + submitRes.status + ': ' + errText.slice(0, 300));
+      }
+
+      const submitData = await submitRes.json();
+      const generationId = submitData.id || submitData.generation_id || submitData.request_id;
+
+      if (!generationId) {
+        throw new Error('Higgsfield returned no generation ID: ' + JSON.stringify(submitData).slice(0, 200));
+      }
+
+      const statusUrl = `${HF_BASE}/v1/generation/${generationId}`;
+      console.log('[HF] Job submitted:', generationId);
+
+      return Response.json({
+        pending: true,
+        request_id: generationId,
+        hf_status_url: statusUrl,
+        provider: 'higgsfield',
+      });
+    }
+
+    // ── MODE: Pexels stock video ─────────────────────────────────────────
+    if (provider === 'pexels_stock') {
+      const pexelsKey = Deno.env.get('PEXELS_API_KEY');
+      if (!pexelsKey) {
+        return Response.json({ failure_reason: 'missing_api_key', error: 'PEXELS_API_KEY not set in Base44 Secrets. Get a free key at pexels.com/api' }, { status: 500 });
+      }
+
+      const query = extractKeywords(body.sceneText || body.prompt || '');
+      console.log('[Pexels] Searching for:', query);
+
+      const searchRes = await fetch(
+        `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&orientation=portrait&per_page=10&size=medium`,
+        { headers: { 'Authorization': pexelsKey } }
+      );
+
+      if (!searchRes.ok) {
+        const errText = await searchRes.text();
+        console.warn('[Pexels] Search failed:', searchRes.status, errText.slice(0, 100));
+        // Fall through to image fallback
+      } else {
+        const searchData = await searchRes.json();
+        const videos = searchData.videos || [];
+
+        if (videos.length > 0) {
+          // Pick a random video from the top results for variety
+          const video = videos[Math.floor(Math.random() * Math.min(videos.length, 5))];
+          // Prefer portrait HD files (height > width), then any file
+          const portraitFiles = (video.video_files || []).filter((f: any) => f.height >= f.width);
+          const files = portraitFiles.length > 0 ? portraitFiles : (video.video_files || []);
+          // Sort by resolution descending, pick the best
+          const sorted = files.sort((a: any, b: any) => b.height - a.height);
+          const best = sorted[0];
+
+          if (best?.link) {
+            console.log('[Pexels] Found video:', video.id, best.width + 'x' + best.height);
+            return Response.json({
+              video_url: best.link,
+              image_url: video.image,
+              clip_type: 'cinematic-video',
+              provider_used: 'pexels',
+              pending: false,
+            });
+          }
+        }
+        console.warn('[Pexels] No suitable video found for query:', query, '— falling back to image');
+      }
+    }
+
+    // ── MODE: Image fallback ─────────────────────────────────────────────
+    // Also catch unknown/unsupported providers (fal_video, runway, luma etc.) — don't let them fall to Kling accidentally
+    const SUPPORTED_PROVIDERS = ['higgsfield', 'pexels_stock', 'image_fallback'];
+    if (provider === 'image_fallback' || !falKey || !SUPPORTED_PROVIDERS.includes(provider)) {
+      try {
+        const imagePrompt = (body.sceneText || body.prompt || '').slice(0, 300);
+        const imgRes = await base44.integrations.Core.GenerateImage({ prompt: imagePrompt });
+        const imageUrl = imgRes && imgRes.url ? imgRes.url : (imgRes && imgRes.image_url ? imgRes.image_url : imgRes);
+        if (imageUrl && typeof imageUrl === 'string') {
+          return Response.json({ image_url: imageUrl, clip_type: 'still-image-fallback', provider_used: 'image_fallback', pending: false });
+        }
+      } catch (imgErr) {
+        console.warn('[generateVideoClip] Image fallback failed:', imgErr.message);
+      }
+      return Response.json({ failure_reason: 'image_generation_failed', pending: false });
+    }
+
+    // ── MODE: Submit Kling v1.6 video job ────────────────────────────────
+    const prompt = (body.sceneText || body.prompt || '').slice(0, 500);
+    const submitRes = await fetch(FAL_QUEUE_BASE + '/' + VIDEO_MODEL, {
+      method: 'POST',
+      headers: { 'Authorization': 'Key ' + falKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt, duration: '5', aspect_ratio: '9:16' }),
     });
 
-  } catch (error) {
-    const reason = classifyError(error);
-    console.error(`[ClipForge] ❌ Scene generation failed: ${error.message}`);
-    console.error(`[ClipForge] 🔍 Failure reason: ${reason}`);
-    return Response.json(
-      { error: error.message, failure_reason: reason },
-      { status: 500 }
-    );
+    if (!submitRes.ok) {
+      const errText = await submitRes.text();
+      throw new Error('fal.ai ' + submitRes.status + ': ' + errText.slice(0, 200));
+    }
+
+    const submitData = await submitRes.json();
+    const requestId = submitData.request_id;
+    const statusUrl = FAL_QUEUE_BASE + '/' + VIDEO_MODEL + '/requests/' + requestId + '/status';
+    const resultUrl = FAL_QUEUE_BASE + '/' + VIDEO_MODEL + '/requests/' + requestId;
+
+    console.log('[generateVideoClip] Kling job submitted:', requestId);
+    return Response.json({ pending: true, request_id: requestId, status_url: statusUrl, result_url: resultUrl });
+
+  } catch (err) {
+    console.error('[generateVideoClip] Error:', err.message);
+    return Response.json({ error: err.message }, { status: 500 });
   }
 });
-
-// ─── Prompt Builder ──────────────────────────────────────────────────────────
-
-function buildVisualPrompt(sceneText, mood, action, visualMode, visualStyle) {
-  const moodMap = {
-    neutral: 'natural lighting, balanced composition',
-    dramatic: 'high contrast dramatic lighting, cinematic shadows',
-    energetic: 'dynamic composition, vibrant colors, motion blur',
-    calm: 'soft golden hour lighting, peaceful serene atmosphere',
-    intense: 'dark moody atmosphere, intense close-up framing',
-    inspirational: 'uplifting warm light, expansive landscape, motivational',
-  };
-  const moodDesc = moodMap[mood] || moodMap.neutral;
-
-  return `Cinematic ${visualStyle} scene: ${sceneText}. ${moodDesc}. ${action ? `Action: ${action}.` : ''} Professional cinematography, 9:16 vertical format, photorealistic, broadcast quality, no text or watermarks.`;
-}
-
-// ─── fal.ai — MiniMax Video-01 (text-to-video) ──────────────────────────────
-// Uses fal.ai's async queue pattern: submit → poll status → fetch result.
-// MiniMax Video-01 generates realistic cinematic clips from text descriptions.
-// No input image required — true text-to-video.
-
-async function generateWithFal(prompt, duration, resolution) {
-  const apiKey = Deno.env.get('FAL_API_KEY');
-  if (!apiKey) throw new Error('FAL_API_KEY not configured. Add it in Base44 → Functions → Environment Variables.');
-
-  const MODEL = 'fal-ai/minimax/video-01-live';
-
-  // Cap prompt length — fal.ai rejects requests over ~500 chars
-  const safePrompt = `${prompt} Vertical portrait orientation, 9:16 aspect ratio, cinematic.`.slice(0, 500);
-
-  console.log(`[ClipForge/fal] 🎬 MiniMax text-to-video | duration hint: ${duration}s`);
-  console.log(`[ClipForge/fal] 📝 Prompt (${safePrompt.length} chars): "${safePrompt.slice(0, 80)}..."`);
-
-  // ── 1. Submit to fal.ai async queue ────────────────────────────────────────
-  const submitRes = await fetch(`https://queue.fal.run/${MODEL}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Key ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt: safePrompt,
-      prompt_optimizer: true,
-    }),
-  });
-
-  console.log(`[ClipForge/fal] Queue submit: ${submitRes.status}`);
-
-  if (!submitRes.ok) {
-    const body = await submitRes.text();
-    if (submitRes.status === 401) throw new Error('FAL_API_KEY is invalid or expired.');
-    if (submitRes.status === 402) throw new Error('fal.ai credits exhausted. Top up at fal.ai/dashboard.');
-    if (submitRes.status === 422) throw new Error(`Invalid request payload sent to fal.ai: ${body.slice(0, 200)}`);
-    throw new Error(`fal.ai ${submitRes.status}: ${body.slice(0, 200)}`);
-  }
-
-  const queueData = await submitRes.json();
-  const requestId = queueData.request_id;
-
-  if (!requestId) {
-    console.error('[ClipForge/fal] Unexpected queue response:', JSON.stringify(queueData));
-    throw new Error('fal.ai did not return a request ID. Check your FAL_API_KEY permissions.');
-  }
-
-  // fal.ai returns pre-built URLs for status and result
-  const statusUrl = queueData.status_url
-    || `https://queue.fal.run/${MODEL}/requests/${requestId}/status`;
-  const resultUrl = queueData.response_url
-    || `https://queue.fal.run/${MODEL}/requests/${requestId}`;
-
-  console.log(`[ClipForge/fal] Queued: ${requestId}. Polling...`);
-
-  // ── 2. Poll status until complete (max 120 s, every 5 s) ──────────────────
-  for (let i = 0; i < 24; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-
-    const statusRes = await fetch(statusUrl, {
-      headers: { 'Authorization': `Key ${apiKey}` },
-    });
-    const statusData = await statusRes.json();
-    const status = statusData.status;
-    console.log(`[ClipForge/fal] Poll ${i + 1}/24: ${status}`);
-
-    if (status === 'COMPLETED') {
-      // ── 3. Fetch the actual output ────────────────────────────────────────
-      const resultRes = await fetch(resultUrl, {
-        headers: { 'Authorization': `Key ${apiKey}` },
-      });
-      const result = await resultRes.json();
-
-      // MiniMax returns { video: { url } }; handle alternate shapes defensively
-      const url =
-        result?.video?.url        ||
-        result?.output?.video?.url ||
-        result?.output?.url        ||
-        result?.url;
-
-      if (!url) {
-        console.error('[ClipForge/fal] Result with no URL:', JSON.stringify(result));
-        throw new Error('fal.ai completed but returned no video URL. Check Base44 function logs.');
-      }
-
-      console.log(`[ClipForge/fal] ✅ Video ready: ${url}`);
-      return { url, type: 'video', provider: 'fal_video' };
-    }
-
-    if (status === 'FAILED') {
-      const reason = statusData.error?.message || statusData.detail || 'unknown reason';
-      throw new Error(`fal.ai MiniMax generation failed: ${reason}`);
-    }
-
-    // IN_QUEUE | IN_PROGRESS — keep polling
-  }
-
-  throw new Error('fal.ai MiniMax timed out after 120 seconds. Try again or switch to image_fallback.');
-}
-
-// ─── Runway ML ───────────────────────────────────────────────────────────────
-
-async function generateWithRunway(prompt, duration, resolution) {
-  const apiKey = Deno.env.get('RUNWAY_API_KEY');
-  if (!apiKey) throw new Error('RUNWAY_API_KEY not configured. Add it in Settings → Video Provider.');
-
-  console.log(`[ClipForge/runway] Requesting Gen-3 video: ${duration}s`);
-
-  // Runway Gen-3 Alpha Turbo
-  const submitRes = await fetch('https://api.runwayml.com/v1/image_to_video', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'X-Runway-Version': '2024-11-06',
-    },
-    body: JSON.stringify({
-      model: 'gen3a_turbo',
-      promptText: prompt,
-      duration: duration <= 5 ? 5 : 10,
-      ratio: '768:1280',
-      watermark: false,
-    }),
-  });
-
-  console.log(`[ClipForge/runway] Submit status: ${submitRes.status}`);
-
-  if (!submitRes.ok) {
-    const body = await submitRes.text();
-    if (submitRes.status === 401) throw new Error('RUNWAY_API_KEY is invalid.');
-    if (submitRes.status === 429) throw new Error('Runway rate limit hit. Try again in a moment.');
-    throw new Error(`Runway returned ${submitRes.status}: ${body.slice(0, 200)}`);
-  }
-
-  const task = await submitRes.json();
-  const taskId = task.id;
-  if (!taskId) throw new Error('Runway did not return a task ID.');
-
-  console.log(`[ClipForge/runway] Task queued: ${taskId}. Polling...`);
-
-  // Poll for completion (max 90s)
-  for (let i = 0; i < 18; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const pollRes = await fetch(`https://api.runwayml.com/v1/tasks/${taskId}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'X-Runway-Version': '2024-11-06' },
-    });
-    const pollData = await pollRes.json();
-    console.log(`[ClipForge/runway] Poll ${i + 1}: status=${pollData.status}`);
-
-    if (pollData.status === 'SUCCEEDED') {
-      const url = pollData.output?.[0];
-      if (!url) throw new Error('Runway task succeeded but returned no URL.');
-      return { url, type: 'video', provider: 'runway' };
-    }
-    if (pollData.status === 'FAILED') {
-      throw new Error(`Runway task failed: ${pollData.failure || 'unknown reason'}`);
-    }
-  }
-
-  throw new Error('Runway task timed out after 90 seconds.');
-}
-
-// ─── Luma AI ─────────────────────────────────────────────────────────────────
-
-async function generateWithLuma(prompt, duration) {
-  const apiKey = Deno.env.get('LUMA_API_KEY');
-  if (!apiKey) throw new Error('LUMA_API_KEY not configured. Add it in Settings → Video Provider.');
-
-  console.log(`[ClipForge/luma] Requesting Dream Machine video`);
-
-  const submitRes = await fetch('https://api.lumalabs.ai/dream-machine/v1/generations', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt,
-      aspect_ratio: '9:16',
-      loop: false,
-    }),
-  });
-
-  console.log(`[ClipForge/luma] Submit status: ${submitRes.status}`);
-
-  if (!submitRes.ok) {
-    const body = await submitRes.text();
-    if (submitRes.status === 401) throw new Error('LUMA_API_KEY is invalid.');
-    if (submitRes.status === 402) throw new Error('Luma AI credits exhausted.');
-    throw new Error(`Luma returned ${submitRes.status}: ${body.slice(0, 200)}`);
-  }
-
-  const task = await submitRes.json();
-  const taskId = task.id;
-  if (!taskId) throw new Error('Luma did not return a generation ID.');
-
-  console.log(`[ClipForge/luma] Generation queued: ${taskId}. Polling...`);
-
-  for (let i = 0; i < 24; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const pollRes = await fetch(`https://api.lumalabs.ai/dream-machine/v1/generations/${taskId}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-    });
-    const pollData = await pollRes.json();
-    console.log(`[ClipForge/luma] Poll ${i + 1}: state=${pollData.state}`);
-
-    if (pollData.state === 'completed') {
-      const url = pollData.assets?.video;
-      if (!url) throw new Error('Luma completed but returned no video URL.');
-      return { url, type: 'video', provider: 'luma' };
-    }
-    if (pollData.state === 'failed') {
-      throw new Error(`Luma generation failed: ${pollData.failure_reason || 'unknown'}`);
-    }
-  }
-
-  throw new Error('Luma task timed out after 120 seconds.');
-}
-
-// ─── Image Fallback (always works via ClipForge built-in) ────────────────────
-
-async function generateWithImageFallback(base44, visualPrompt, sceneText) {
-  console.log(`[ClipForge/image] Generating cinematic still frame`);
-
-  const result = await base44.asServiceRole.integrations.Core.GenerateImage({
-    prompt: visualPrompt,
-  });
-
-  const url = result?.url;
-  if (!url) throw new Error('Image generation returned no URL. Check integration credits.');
-
-  console.log(`[ClipForge/image] Generated still frame: ${url}`);
-  return { url, type: 'image', provider: 'image_fallback' };
-}
-
-// ─── Higgsfield AI (DoP model — image-to-video) ──────────────────────────────
-// Higgsfield works best as a two-step process:
-//   1. Generate a precise still image from the scene description
-//   2. Animate that image with a cinematic camera movement via Higgsfield DoP
-// This produces more consistent, higher-quality results than pure text-to-video.
-
-async function generateWithHiggsfield(base44, visualPrompt, sceneText, duration) {
-  const apiKey = Deno.env.get('HIGGSFIELD_API_KEY');
-  if (!apiKey) throw new Error('HIGGSFIELD_API_KEY not configured. Add it in Base44 → Functions → Environment Variables.');
-
-  // Higgsfield supports both key formats:
-  //   - Simple token:      "Bearer sk-abc123"
-  //   - Key ID + secret:   "Key KEY_ID:KEY_SECRET"
-  const authHeader = apiKey.includes(':') ? `Key ${apiKey}` : `Bearer ${apiKey}`;
-
-  // ── Step 1: Generate scene still image ─────────────────────────────────────
-  console.log('[ClipForge/higgsfield] 🖼  Generating base image for scene...');
-  const imageResult = await base44.asServiceRole.integrations.Core.GenerateImage({
-    prompt: visualPrompt,
-  });
-  const imageUrl = imageResult?.url;
-  if (!imageUrl) throw new Error('Higgsfield: base image generation returned no URL.');
-  console.log(`[ClipForge/higgsfield] ✅ Base image: ${imageUrl}`);
-
-  // ── Step 2: Build cinematic animation prompt ────────────────────────────────
-  const animationPrompt = buildHiggsAnimationPrompt(sceneText);
-
-  // ── Step 3: Submit to Higgsfield DoP ───────────────────────────────────────
-  console.log(`[ClipForge/higgsfield] 🎬 Submitting DoP job | duration: ${duration}s`);
-
-  const submitRes = await fetch('https://platform.higgsfield.ai/v1/image2video/dop', {
-    method: 'POST',
-    headers: {
-      'Authorization': authHeader,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      input: {
-        model: 'dop-turbo',
-        prompt: animationPrompt,
-        input_images: [{ type: 'image_url', image_url: imageUrl }],
-        duration: Math.min(Math.max(duration, 3), 10), // Higgsfield range: 3-10s
-      },
-    }),
-  });
-
-  console.log(`[ClipForge/higgsfield] Submit status: ${submitRes.status}`);
-
-  if (!submitRes.ok) {
-    const body = await submitRes.text();
-    if (submitRes.status === 401) throw new Error('HIGGSFIELD_API_KEY is invalid or expired.');
-    if (submitRes.status === 402) throw new Error('Higgsfield credits exhausted. Top up at higgsfield.ai.');
-    if (submitRes.status === 429) throw new Error('Higgsfield rate limit hit. Try again in a moment.');
-    if (submitRes.status === 422) throw new Error(`Higgsfield rejected the request: ${body.slice(0, 150)}`);
-    throw new Error(`Higgsfield ${submitRes.status}: ${body.slice(0, 200)}`);
-  }
-
-  const taskData = await submitRes.json();
-
-  // Higgsfield may return request_id directly or nest it
-  const requestId = taskData.request_id || taskData.id || taskData.requestId;
-  if (!requestId) {
-    console.error('[ClipForge/higgsfield] Unexpected response:', JSON.stringify(taskData));
-    throw new Error('Higgsfield did not return a request ID. Check API key permissions.');
-  }
-
-  console.log(`[ClipForge/higgsfield] Task queued: ${requestId}. Polling...`);
-
-  // ── Step 4: Poll for completion (max 90 s, every 5 s) ─────────────────────
-  for (let i = 0; i < 18; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-
-    const pollRes = await fetch(
-      `https://platform.higgsfield.ai/requests/${requestId}/status`,
-      { headers: { 'Authorization': authHeader } }
-    );
-
-    if (!pollRes.ok) {
-      console.warn(`[ClipForge/higgsfield] Poll ${i + 1} returned ${pollRes.status} — retrying`);
-      continue;
-    }
-
-    const pollData = await pollRes.json();
-    const status = pollData.status?.toLowerCase();
-    console.log(`[ClipForge/higgsfield] Poll ${i + 1}/18: status=${status}`);
-
-    if (status === 'completed' || status === 'succeeded') {
-      // Try all known response paths for the video URL
-      const videoUrl =
-        pollData.jobs?.[0]?.results?.raw?.url ||
-        pollData.jobs?.[0]?.results?.url       ||
-        pollData.result?.video?.url            ||
-        pollData.video?.url                    ||
-        pollData.output?.url                   ||
-        pollData.url;
-
-      if (!videoUrl) {
-        console.error('[ClipForge/higgsfield] Completed but no URL found. Full response:', JSON.stringify(pollData));
-        throw new Error('Higgsfield completed but returned no video URL. Check the Base44 function logs.');
-      }
-
-      console.log(`[ClipForge/higgsfield] ✅ Video ready: ${videoUrl}`);
-      return { url: videoUrl, type: 'video', provider: 'higgsfield' };
-    }
-
-    if (status === 'failed' || status === 'error') {
-      throw new Error(`Higgsfield generation failed: ${pollData.error || pollData.message || 'unknown reason'}`);
-    }
-
-    if (status === 'nsfw') {
-      throw new Error('Higgsfield rejected the scene as NSFW. Adjust your visual prompt.');
-    }
-    // status: queued | in_progress | running — keep polling
-  }
-
-  throw new Error('Higgsfield task timed out after 90 seconds. Try a shorter duration or simpler scene.');
-}
-
-// ─── Higgsfield animation prompt builder ─────────────────────────────────────
-// Produces concise cinematic motion directives that work well with DoP-turbo.
-function buildHiggsAnimationPrompt(sceneText) {
-  const text = sceneText.toLowerCase();
-
-  // Pick a camera movement that fits the scene content
-  let movement = 'slow cinematic push-in, smooth motion';
-
-  if (text.includes('walk') || text.includes('move') || text.includes('run')) {
-    movement = 'smooth tracking shot following subject, steady motion';
-  } else if (text.includes('reveal') || text.includes('discover') || text.includes('open')) {
-    movement = 'slow crane-up reveal, cinematic dolly';
-  } else if (text.includes('intense') || text.includes('dramatic') || text.includes('dark')) {
-    movement = 'slow push-in close-up, dramatic lighting shift';
-  } else if (text.includes('sky') || text.includes('landscape') || text.includes('wide')) {
-    movement = 'slow aerial pan, sweeping cinematic motion';
-  } else if (text.includes('person') || text.includes('face') || text.includes('character')) {
-    movement = 'gentle push-in portrait, subtle camera drift';
-  }
-
-  return `${movement}, 9:16 vertical frame, cinematic quality, photorealistic, broadcast quality, no text`;
-}
-
-// ─── Error Classifier ─────────────────────────────────────────────────────────
-
-function classifyError(error) {
-  const msg = error.message?.toLowerCase() || '';
-  if (msg.includes('api_key') || msg.includes('not configured') || msg.includes('apikey')) return 'missing_api_key';
-  if (msg.includes('invalid') && msg.includes('key')) return 'invalid_api_key';
-  if (msg.includes('credits') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('402')) return 'no_credits';
-  if (msg.includes('timed out') || msg.includes('timeout')) return 'provider_timeout';
-  if (msg.includes('empty') || msg.includes('no url')) return 'empty_response';
-  if (msg.includes('422') || msg.includes('invalid request')) return 'invalid_request';
-  if (msg.includes('401') || msg.includes('unauthorized')) return 'invalid_api_key';
-  return 'unknown_error';
-}

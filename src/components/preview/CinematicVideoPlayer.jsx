@@ -6,6 +6,7 @@ import {
 import { cn } from '@/lib/utils';
 import CaptionRenderer from './CaptionRenderer';
 import { VOICE_PROFILES } from '@/lib/ttsEngine';
+import { base44 } from '@/api/base44Client';
 
 /**
  * Cinematic Video Player
@@ -23,6 +24,9 @@ export default function CinematicVideoPlayer({ projectData }) {
   const rafRef = useRef(null);
   const startRef = useRef(null);
   const utteranceRef = useRef(null);
+  const sceneAudioRef = useRef(null);
+  const sceneBlobUrlRef = useRef(null);
+  const audioCache = useRef(new Map()); // sceneIdx → blob URL
 
   const scenes = projectData.scenes || [];
   const totalDuration = scenes.reduce((s, sc) => s + (sc.duration || sc.clip_duration || 5), 0);
@@ -32,10 +36,68 @@ export default function CinematicVideoPlayer({ projectData }) {
       setIsLoading(false);
       return;
     }
-    // Simulate clip loading
     const timer = setTimeout(() => setIsLoading(false), 800);
     return () => clearTimeout(timer);
   }, [scenes.length]);
+
+  // Pre-fetch TTS for all scenes in the background when player loads
+  useEffect(() => {
+    if (scenes.length === 0) return;
+    audioCache.current.clear();
+
+    const controller = new AbortController();
+    scenes.forEach((scene, i) => {
+      // Use stored audio_data if pipeline already generated it
+      if (scene.audio_data) {
+        try {
+          const binary = atob(scene.audio_data);
+          const bytes = new Uint8Array(binary.length);
+          for (let k = 0; k < binary.length; k++) bytes[k] = binary.charCodeAt(k);
+          const blob = new Blob([bytes], { type: scene.audio_content_type || 'audio/mpeg' });
+          audioCache.current.set(i, URL.createObjectURL(blob));
+          console.log(`[Player] 🎙 Scene ${i + 1} audio from pipeline cache`);
+        } catch (e) {
+          console.warn(`[Player] ⚠️ Scene ${i + 1} pipeline audio decode failed:`, e.message);
+        }
+        return;
+      }
+      // Otherwise fetch from API
+      const text = (scene.text || scene.caption || '').replace(/\[SCENE\]/gi, '').trim();
+      if (!text) return;
+      console.log(`[Player] 🔄 Scene ${i + 1} fetching TTS from API...`);
+      base44.functions.invoke('generateVideoClip', {
+        voice_mode: 'tts',
+        script: text,
+        voice_id: projectData.voice_id || 'morgan_deep',
+        voice_speed: projectData.voice_speed || 1.0,
+      }).then(result => {
+        if (controller.signal.aborted) return;
+        const audioData = result?.data?.audio_data;
+        if (!audioData) {
+          console.warn(`[Player] ⚠️ Scene ${i + 1} TTS returned no audio. Full response:`, JSON.stringify(result?.data).slice(0, 300));
+          return;
+        }
+        try {
+          const binary = atob(audioData);
+          const bytes = new Uint8Array(binary.length);
+          for (let k = 0; k < binary.length; k++) bytes[k] = binary.charCodeAt(k);
+          const blob = new Blob([bytes], { type: 'audio/mpeg' });
+          audioCache.current.set(i, URL.createObjectURL(blob));
+          console.log(`[Player] 🎙 Scene ${i + 1} audio ready (${result.data.provider}, ${(audioData.length * 0.75 / 1024).toFixed(0)}KB)`);
+        } catch (e) {
+          console.warn(`[Player] ⚠️ Scene ${i + 1} audio decode failed:`, e.message);
+        }
+      }).catch(err => {
+        console.warn(`[Player] ⚠️ Scene ${i + 1} TTS API call failed:`, err?.message || err);
+      });
+    });
+
+    return () => {
+      controller.abort();
+      audioCache.current.forEach(url => URL.revokeObjectURL(url));
+      audioCache.current.clear();
+    };
+  }, [scenes.length, projectData.voice_id]);
 
   // Actually play/pause the <video> element when isPlaying changes or scene changes
   useEffect(() => {
@@ -48,14 +110,35 @@ export default function CinematicVideoPlayer({ projectData }) {
     }
   }, [isPlaying, sceneIdx]);
 
-  // Browser TTS voiceover — speaks each scene's text while it plays
+  // Scene audio: play ElevenLabs audio if stored in scene, else fall back to browser TTS
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.speechSynthesis || muted) return;
-    window.speechSynthesis.cancel();
-    if (!isPlaying || !scenes[sceneIdx]) return;
+    // Stop any previously playing scene audio
+    window.speechSynthesis?.cancel();
+    if (sceneAudioRef.current) {
+      sceneAudioRef.current.pause();
+      sceneAudioRef.current = null;
+    }
+    if (sceneBlobUrlRef.current) {
+      URL.revokeObjectURL(sceneBlobUrlRef.current);
+      sceneBlobUrlRef.current = null;
+    }
 
-    const text = (scenes[sceneIdx].caption || scenes[sceneIdx].text || '')
-      .replace(/\[SCENE\]/gi, '').trim();
+    if (!isPlaying || !scenes[sceneIdx] || muted) return;
+
+    const scene = scenes[sceneIdx];
+
+    // Use pre-fetched OpenAI TTS audio from cache if available
+    const cachedUrl = audioCache.current.get(safeIdx);
+    if (cachedUrl) {
+      const audio = new Audio(cachedUrl);
+      audio.play().catch(e => console.warn('[Player] Audio play blocked:', e.message));
+      sceneAudioRef.current = audio;
+      return () => { audio.pause(); sceneAudioRef.current = null; };
+    }
+
+    // Fallback: browser Web Speech API
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const text = (scene.caption || scene.text || '').replace(/\[SCENE\]/gi, '').trim();
     if (!text) return;
 
     const speak = () => {
@@ -64,7 +147,6 @@ export default function CinematicVideoPlayer({ projectData }) {
       const profile = VOICE_PROFILES[voiceId] || VOICE_PROFILES.morgan_deep;
       utterance.rate = Math.min(1.5, Math.max(0.5, (profile?.rate || 1.0) * (projectData.voice_speed || 1.0)));
       utterance.pitch = profile?.pitch || 1.0;
-
       const voices = window.speechSynthesis.getVoices();
       if (voices.length > 0) {
         const hints = profile?.nameHints || ['Daniel', 'David'];
@@ -75,12 +157,8 @@ export default function CinematicVideoPlayer({ projectData }) {
       window.speechSynthesis.speak(utterance);
     };
 
-    // Chrome requires voices to be loaded first
-    if (window.speechSynthesis.getVoices().length > 0) {
-      speak();
-    } else {
-      window.speechSynthesis.onvoiceschanged = speak;
-    }
+    if (window.speechSynthesis.getVoices().length > 0) speak();
+    else window.speechSynthesis.onvoiceschanged = speak;
 
     return () => { window.speechSynthesis.cancel(); };
   }, [isPlaying, sceneIdx, muted]);

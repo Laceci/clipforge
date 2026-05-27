@@ -161,8 +161,8 @@ export default function CreateVideo() {
       });
       setSavedProjectId(initProject.id);
 
-      // Pass video provider setting from user preferences
-      enhancedProjectData.video_provider = userPrefs?.video_provider ?? null;
+      // Use image_fallback by default to avoid fal.ai costs during testing
+      enhancedProjectData.video_provider = userPrefs?.video_provider ?? 'image_fallback';
 
       const result = await runVideoPipeline(enhancedProjectData, (prog) => {
         setGenProgress(prog);

@@ -1,14 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { VOICE_CATEGORIES, VOICE_PRESETS, getVoiceById } from '@/lib/voiceSystem';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
-import { Play, Check, Mic, Zap } from 'lucide-react';
+import { Play, Square, Check, Mic, Zap, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+import { base44 } from '@/api/base44Client';
+
+const PREVIEW_SAMPLES = {
+  morgan_deep:     'Every great story begins with a single moment of courage.',
+  alex_warm:       'This is a story about the people who changed everything.',
+  claire_soothing: 'There is beauty in the broken pieces of who we used to be.',
+  nova_clear:      'The mystery deepened with every piece of evidence uncovered.',
+  titan_power:     'You have the power to change your life starting right now.',
+  blaze_bold:      'Stop waiting for permission. Go out there and take it.',
+  sophia_inspire:  'Your potential is limitless. Your journey starts today.',
+  zara_fierce:     'Stop shrinking yourself to fit spaces that were never meant for you.',
+  zen_deep:        'Breathe deeply. Let your thoughts dissolve into stillness.',
+  aurora_soft:     'Close your eyes and let the stillness guide you home.',
+  marcus_clear:    'Scientists discovered something that rewrote the history books.',
+  ivy_crisp:       'Three facts about the human brain that will completely surprise you.',
+  sterling_pro:    'Leadership is not a title. It is a decision.',
+  diana_executive: 'The most successful people in the world share one critical habit.',
+  jake_casual:     'Hey, so I tried this thing and honestly it changed everything.',
+  mia_friendly:    'This skincare routine completely transformed my skin, no joke.',
+};
 
 export default function VoicePicker({ data, onChange }) {
   const [activeTab, setActiveTab] = useState('presets');
   const [playingId, setPlayingId] = useState(null);
+  const [loadingId, setLoadingId] = useState(null);
+  const audioRef = useRef(null);
+  const blobUrlRef = useRef(null);
 
   const selectedPresetId = data.voice_preset || 'deep_story_narrator';
   const selectedVoiceId = data.voice_id;
@@ -31,11 +53,59 @@ export default function VoicePicker({ data, onChange }) {
     onChange({ voice_id: voice.id, voice_style: voice.tone, voice_speed: voice.speed, voice_pitch: voice.pitch });
   };
 
-  const handlePreview = (e, id) => {
+  const stopCurrent = () => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
+    setPlayingId(null);
+  };
+
+  const handlePreview = async (e, id) => {
     e.stopPropagation();
-    setPlayingId(id);
-    toast.info('Voice preview requires a connected TTS API. A real voice preview will play when configured.', { duration: 3000 });
-    setTimeout(() => setPlayingId(null), 2000);
+
+    // Stop if already playing this voice
+    if (playingId === id) { stopCurrent(); return; }
+    stopCurrent();
+
+    setLoadingId(id);
+    const text = PREVIEW_SAMPLES[id] || 'Welcome to ClipForge. Your video is ready to create.';
+
+    try {
+      const result = await base44.functions.invoke('generateVideoClip', {
+        voice_mode: 'tts',
+        script: text,
+        voice_id: id,
+        voice_speed: data.voice_speed || 1.0,
+      });
+
+      const audioData = result?.data?.audio_data;
+      if (!audioData) throw new Error(result?.data?.error || 'No audio returned');
+
+      const binary = atob(audioData);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      setLoadingId(null);
+      setPlayingId(id);
+
+      audio.play();
+      audio.onended = () => { stopCurrent(); };
+      audio.onerror = () => { stopCurrent(); };
+    } catch (err) {
+      setLoadingId(null);
+      console.error('[VoicePicker] Preview failed:', err.message);
+      // Fallback to browser TTS so the user hears something
+      if (window.speechSynthesis) {
+        setPlayingId(id);
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.onend = () => setPlayingId(null);
+        window.speechSynthesis.speak(utterance);
+      }
+    }
   };
 
   return (
@@ -77,9 +147,11 @@ export default function VoicePicker({ data, onChange }) {
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={(e) => handlePreview(e, preset.id)}
-                    className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center hover:bg-primary/20 transition-colors"
+                    className={cn('w-6 h-6 rounded-full flex items-center justify-center transition-colors', playingId === preset.id ? 'bg-primary/20' : 'bg-secondary hover:bg-primary/20')}
                   >
-                    <Play className={cn('w-2.5 h-2.5', playingId === preset.id ? 'text-primary' : 'text-muted-foreground')} />
+                    {loadingId === preset.id ? <Loader2 className="w-2.5 h-2.5 text-primary animate-spin" /> :
+                     playingId === preset.id ? <Square className="w-2.5 h-2.5 text-primary fill-current" /> :
+                     <Play className="w-2.5 h-2.5 text-muted-foreground" />}
                   </button>
                   {selectedPresetId === preset.id && <Check className="w-3.5 h-3.5 text-primary" />}
                 </div>
@@ -123,9 +195,11 @@ export default function VoicePicker({ data, onChange }) {
                     </div>
                     <button
                       onClick={(e) => handlePreview(e, voice.id)}
-                      className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center hover:bg-primary/20 transition-colors shrink-0"
+                      className={cn('w-6 h-6 rounded-full flex items-center justify-center transition-colors shrink-0', playingId === voice.id ? 'bg-primary/20' : 'bg-secondary hover:bg-primary/20')}
                     >
-                      <Play className="w-2.5 h-2.5 text-muted-foreground" />
+                      {loadingId === voice.id ? <Loader2 className="w-2.5 h-2.5 text-primary animate-spin" /> :
+                       playingId === voice.id ? <Square className="w-2.5 h-2.5 text-primary fill-current" /> :
+                       <Play className="w-2.5 h-2.5 text-muted-foreground" />}
                     </button>
                   </button>
                 ))}

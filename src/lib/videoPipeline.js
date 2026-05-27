@@ -47,21 +47,40 @@ export async function runVideoPipeline(projectData, onProgress) {
   if (!script && projectData.topic) {
     try {
       const generated = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a viral short-form video scriptwriter. Write a compelling ${projectData.duration_target || '60s'} script for a faceless vertical video.
+        prompt: `You are a world-class viral short-form video scriptwriter. Your scripts consistently get millions of views on TikTok and YouTube Shorts.
 
-Topic/Hook: "${projectData.topic}"
+Write a tight, cinematic script for a faceless vertical video.
+
+Topic: "${projectData.topic}"
 Category: ${projectData.template_category || 'custom'}
-Voice tone: ${projectData.voice_style || 'motivational'}
+Tone: ${projectData.voice_style || 'motivational'}
+Target length: ${projectData.duration_target || '60 seconds'}
 
-Requirements:
-- Short punchy sentences, each 1-2 sentences max
-- Emotional hooks and cliffhangers
-- 5-8 scenes/segments
-- Mark scene breaks with [SCENE]
-- No stage directions, only narration text
-- Viral-worthy opening hook
+FOLLOW THIS EXACT STRUCTURE — one [SCENE] per beat:
 
-Output the script only.`,
+[SCENE 1 — HOOK]: Open with a shocking stat, bold claim, or question that stops the scroll. Max 2 sentences. Make it impossible to ignore.
+
+[SCENE 2 — TENSION]: Deepen the hook. Why does this matter? Create urgency or curiosity. Max 2 sentences.
+
+[SCENE 3 — INSIGHT 1]: First key revelation. Specific, surprising, counterintuitive. Max 2 sentences.
+
+[SCENE 4 — INSIGHT 2]: Second point that builds on the first. Add concrete detail or example. Max 2 sentences.
+
+[SCENE 5 — TURNING POINT]: The most powerful moment — a story beat, a statistic, or a reframe that shifts perspective. Max 2 sentences.
+
+[SCENE 6 — PAYOFF]: Deliver the answer or resolution they've been waiting for. Max 2 sentences.
+
+[SCENE 7 — CTA]: One direct call to action. Tell them to follow, comment, or share. 1 sentence.
+
+RULES (non-negotiable):
+- Every sentence must be spoken narration — no stage directions, no [brackets], no descriptions
+- Each scene suggests a clear visual: a person, a place, an action, or an object
+- Use conversational language — write how people talk, not how they write
+- Replace vague words with specific ones ("some people" → "1 in 3 adults")
+- Each scene must connect logically to the next — this is a story, not random facts
+- Mark scene breaks with [SCENE] on its own line
+
+Output the script only. No scene labels. Just the narration text with [SCENE] breaks.`,
       });
       script = typeof generated === 'string' ? generated : generated.toString();
     } catch (err) {
@@ -179,6 +198,7 @@ Output the script only.`,
           request_id: entry.data.request_id,
           status_url: entry.data.status_url,
           result_url: entry.data.result_url,
+          hf_status_url: entry.data.hf_status_url,
         });
         if (!pollResult.data?.pending) {
           entry.data = pollResult.data;
@@ -249,12 +269,39 @@ Output the script only.`,
   });
   console.log(`[ClipForge] 📝 Captions synced for ${scenesWithCaptions.length} video clips`);
 
-  // Compute totals + validate before kicking off the slow render step
-  const totalDuration = scenesWithCaptions.reduce((sum, s) => sum + (s.duration || s.clip_duration || 5), 0);
-  const thumbnail = scenesWithCaptions[0]?.image_url || scenesWithCaptions[0]?.video_url || '';
+  // Step 7.5: Generate per-scene ElevenLabs voiceover and store audio in each scene
+  step('voiceover', 'Generating AI voiceover per scene...');
+  const scenesWithAudio = await Promise.all(scenesWithCaptions.map(async (scene, i) => {
+    const text = (scene.text || scene.caption || '').replace(/\[SCENE\]/gi, '').trim();
+    if (!text) return scene;
+    try {
+      const result = await base44.functions.invoke('generateVideoClip', {
+        voice_mode: 'tts',
+        script: text,
+        voice_id: projectData.voice_id || 'morgan_deep',
+        voice_speed: projectData.voice_speed || 1.0,
+      });
+      const audioData = result?.data?.audio_data;
+      const contentType = result?.data?.content_type || 'audio/mpeg';
+      if (audioData) {
+        console.log(`[ClipForge] 🎙 Scene ${i + 1} voiceover ready (${Math.round(audioData.length * 0.75 / 1024)} KB)`);
+        return { ...scene, audio_data: audioData, audio_content_type: contentType };
+      }
+    } catch (e) {
+      console.warn(`[ClipForge] ⚠️ Scene ${i + 1} voiceover failed — will use browser TTS: ${e.message}`);
+    }
+    return scene;
+  }));
 
-  const videoClipCount = scenesWithCaptions.filter(s => s.video_url && s.clip_type === 'cinematic-video').length;
-  const imageCount = scenesWithCaptions.filter(s => s.image_url).length;
+  const voicedCount = scenesWithAudio.filter(s => s.audio_data).length;
+  console.log(`[ClipForge] 🎙 Voiceover: ${voicedCount}/${scenesWithCaptions.length} scenes have audio`);
+
+  // Compute totals + validate before kicking off the slow render step
+  const totalDuration = scenesWithAudio.reduce((sum, s) => sum + (s.duration || s.clip_duration || 5), 0);
+  const thumbnail = scenesWithAudio[0]?.image_url || scenesWithAudio[0]?.video_url || '';
+
+  const videoClipCount = scenesWithAudio.filter(s => s.video_url && s.clip_type === 'cinematic-video').length;
+  const imageCount = scenesWithAudio.filter(s => s.image_url).length;
 
   console.log(`[ClipForge] 🎬 Scenes validated: ${videoClipCount} video clips, ${imageCount} image frames`);
   console.log(`[ClipForge] 🎥 Cinematic mode: ${cinematicMode} | Duration: ${Math.round(totalDuration)}s`);
@@ -276,7 +323,7 @@ Output the script only.`,
       script,
       voice_id:       projectData.voice_id || 'morgan_deep',
       voice_speed:    projectData.voice_speed || 1.0,
-      scenes: scenesWithCaptions.map(s => ({
+      scenes: scenesWithAudio.map(s => ({
         image_url: s.image_url || null,
         video_url: s.video_url || null,
         duration:  s.clip_duration || s.duration || 5,
@@ -336,7 +383,7 @@ Output the script only.`,
   console.log(`[ClipForge] ✅ Pipeline complete — ${videoClipCount > 0 ? videoClipCount + ' video clips' : imageCount + ' image frames'} | download: ${video_url ? 'yes' : 'no (configure API keys)'}`);
 
   return {
-    scenes: scenesWithCaptions,
+    scenes: scenesWithAudio,
     thumbnail_url: thumbnail,
     duration: totalDuration,
     status: 'ready',

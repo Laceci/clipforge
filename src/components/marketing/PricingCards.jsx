@@ -6,57 +6,57 @@ import { cn } from '@/lib/utils';
 const PLANS = [
   {
     name: 'Starter',
-    subtitle: 'Perfect for testing',
-    price: '$29',
+    subtitle: 'Great for getting started',
+    price: '$14',
     billing: '/month',
-    videos: '4 videos/month',
+    videos: '15 videos/month',
     features: [
       'AI Script Generation',
-      'Basic Voice Personas (5)',
+      '5 AI Voice Personas',
       '1080p Rendering',
       'TikTok & Instagram Publishing',
+      'Animated Captions',
       'Basic Analytics',
       'Email Support',
     ],
-    cta: 'Get Started',
+    cta: 'Start Free Trial',
     featured: false,
   },
   {
-    name: 'Pro',
+    name: 'Growth',
     subtitle: 'Most popular',
-    price: '$79',
+    price: '$22',
     billing: '/month',
-    videos: '20 videos/month',
+    videos: '30 videos/month',
     features: [
       'Everything in Starter',
-      'Premium Voice Personas (20)',
+      '15 AI Voice Personas',
       '4K Rendering',
       'All Platforms (YouTube, TikTok, Instagram, Facebook)',
       'Advanced Analytics',
       'Scheduling & Queue System',
-      'Brand Customization',
+      'Brand Kit & Custom Captions',
       'Priority Support',
     ],
     cta: 'Start Free Trial',
     featured: true,
   },
   {
-    name: 'Elite',
-    subtitle: 'For agencies & teams',
-    price: '$199',
+    name: 'Pro',
+    subtitle: 'For serious creators',
+    price: '$38',
     billing: '/month',
-    videos: 'Unlimited videos',
+    videos: '60 videos/month',
     features: [
-      'Everything in Pro',
-      'All Voice Personas (30+)',
+      'Everything in Growth',
+      '30+ AI Voice Personas',
       'Cinematic 4K Premium',
-      'Advanced AI Enhancements',
-      'Custom Integrations',
-      'Team Collaboration',
-      'Dedicated Account Manager',
+      'Higgsfield AI Video Clips',
+      'Bulk Script Generation',
+      'Auto-Publish Scheduling',
       'Priority 24/7 Support',
     ],
-    cta: 'Contact Sales',
+    cta: 'Start Free Trial',
     featured: false,
   },
 ];
@@ -64,11 +64,22 @@ const PLANS = [
 export default function PricingCards() {
   return (
     <div className="mb-12">
-      <div className="text-center space-y-3 mb-12">
+      <div className="text-center space-y-3 mb-8">
         <h2 className="text-3xl md:text-4xl font-bold">Simple, Transparent Pricing</h2>
         <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
           Choose the plan that fits your content production needs
         </p>
+      </div>
+
+      {/* Trial banner */}
+      <div className="flex justify-center mb-10">
+        <div className="inline-flex items-center gap-3 bg-primary/10 border border-primary/30 rounded-2xl px-6 py-3 text-sm">
+          <span className="text-xl">🎬</span>
+          <div>
+            <span className="font-bold text-primary">Free 7-day trial</span>
+            <span className="text-muted-foreground"> — 14 videos included, no credit card required</span>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -128,7 +139,7 @@ export default function PricingCards() {
       </div>
 
       <p className="text-center text-xs text-muted-foreground mt-8">
-        All plans include a 14-day free trial. No credit card required.
+        All plans include a 7-day free trial with 14 videos. Cancel anytime.
       </p>
     </div>
   );
