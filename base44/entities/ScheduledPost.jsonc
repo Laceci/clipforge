@@ -1,0 +1,101 @@
+{
+  "name": "ScheduledPost",
+  "type": "object",
+  "properties": {
+    "project_id": {
+      "type": "string"
+    },
+    "project_title": {
+      "type": "string"
+    },
+    "thumbnail_url": {
+      "type": "string"
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "tiktok",
+          "instagram",
+          "youtube",
+          "facebook"
+        ]
+      }
+    },
+    "caption": {
+      "type": "string"
+    },
+    "platform_captions": {
+      "type": "object",
+      "description": "Platform-specific captions (key: platform, value: caption)"
+    },
+    "hashtags": {
+      "type": "string"
+    },
+    "video_url": {
+      "type": "string"
+    },
+    "scheduled_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When to publish (null = publish now)"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "scheduled",
+        "published",
+        "failed",
+        "processing"
+      ],
+      "default": "draft"
+    },
+    "auto_publish": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, publishes automatically after video generation"
+    },
+    "error_type": {
+      "type": "string",
+      "enum": [
+        "expired_token",
+        "upload_failed",
+        "render_failed",
+        "missing_media",
+        "api_timeout"
+      ],
+      "description": "Error type for failed posts"
+    },
+    "error_message": {
+      "type": "string"
+    },
+    "publish_results": {
+      "type": "object",
+      "description": "Per-platform publish results with URLs and timestamps"
+    },
+    "retry_count": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "project_id",
+    "platforms"
+  ],
+  "rls": {
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "read": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}

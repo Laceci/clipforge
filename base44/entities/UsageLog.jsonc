@@ -1,0 +1,36 @@
+{
+  "name": "UsageLog",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "credits_used": {
+      "type": "number",
+      "default": 1
+    },
+    "details": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "rls": {
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "read": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "name": "ImageToStoryProject",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Project title"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "uploading",
+        "labeling",
+        "generating",
+        "rendering",
+        "ready",
+        "failed"
+      ],
+      "default": "draft",
+      "description": "Project status"
+    },
+    "uploaded_images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string"
+          },
+          "character_label": {
+            "type": "string",
+            "description": "Label for the person (e.g. 'me', 'my daughter')"
+          },
+          "face_embedding": {
+            "type": "string",
+            "description": "Face embedding data for identity preservation"
+          }
+        }
+      },
+      "description": "Uploaded images with character labels"
+    },
+    "character_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Total number of characters/people uploaded"
+    },
+    "story_prompt": {
+      "type": "string",
+      "description": "User's story prompt or theme"
+    },
+    "story_type": {
+      "type": "string",
+      "enum": [
+        "adventure",
+        "emotional",
+        "fantasy",
+        "luxury",
+        "horror",
+        "other"
+      ],
+      "default": "adventure",
+      "description": "Story category"
+    },
+    "story_tone": {
+      "type": "string",
+      "enum": [
+        "fun",
+        "intense",
+        "inspirational",
+        "dramatic"
+      ],
+      "default": "fun",
+      "description": "Story tone"
+    },
+    "video_length": {
+      "type": "string",
+      "enum": [
+        "30s",
+        "60s",
+        "120s"
+      ],
+      "default": "60s",
+      "description": "Target video length"
+    },
+    "generated_story": {
+      "type": "string",
+      "description": "AI-generated story narrative"
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_index": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "characters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels of characters in this scene"
+          },
+          "action": {
+            "type": "string"
+          },
+          "video_url": {
+            "type": "string",
+            "description": "Generated cinematic video clip URL"
+          },
+          "duration": {
+            "type": "number"
+          }
+        }
+      },
+      "description": "Generated story scenes"
+    },
+    "final_video_url": {
+      "type": "string",
+      "description": "Final rendered cinematic video with voiceover and music"
+    },
+    "thumbnail_url": {
+      "type": "string"
+    },
+    "video_duration": {
+      "type": "number",
+      "description": "Total video duration in seconds"
+    },
+    "voiceover_script": {
+      "type": "string",
+      "description": "AI-generated voiceover narration"
+    },
+    "music_track": {
+      "type": "string",
+      "description": "Background music selection"
+    },
+    "generation_progress": {
+      "type": "number",
+      "default": 0
+    },
+    "error_message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title"
+  ],
+  "rls": {
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "read": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}
