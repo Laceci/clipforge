@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { stopSpeech } from '@/lib/ttsEngine';
+import { stopSpeech, previewVoice } from '@/lib/ttsEngine';
 import { VOICE_LIBRARY, validateVoiceSelection, logVoiceSelection } from '@/lib/voiceIdentity';
 import { base44 } from '@/api/base44Client';
 
@@ -90,9 +90,11 @@ export default function VoiceAvatarPicker({ value, onChange }) {
   const filtered = activeTab === 'all' ? VOICES : VOICES.filter(v => v.category === activeTab);
 
   const stopCurrent = () => {
+    stopSpeech();
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
     setPlayingId(null);
+    setLoadingId(null);
   };
 
   const handlePreview = async (e, voice) => {
@@ -103,6 +105,13 @@ export default function VoiceAvatarPicker({ value, onChange }) {
 
     const voiceData = VOICE_LIBRARY.find(v => v.id === voice.id);
     const text = voiceData?.previewText || 'Welcome to ClipForge. Your video is ready to create.';
+
+    // Create AudioContext synchronously during the click gesture so mobile
+    // browsers keep the audio permission alive through the async API call.
+    let audioCtx = null;
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (_) {}
 
     setLoadingId(voice.id);
     try {
@@ -119,27 +128,37 @@ export default function VoiceAvatarPicker({ value, onChange }) {
       const binary = atob(audioData);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: 'audio/mpeg' });
-      const url = URL.createObjectURL(blob);
-      blobUrlRef.current = url;
 
-      const audio = new Audio(url);
-      audioRef.current = audio;
       setLoadingId(null);
       setPlayingId(voice.id);
       logVoiceSelection(voice.id, 'Preview started via ElevenLabs');
-      audio.play();
-      audio.onended = () => stopCurrent();
-      audio.onerror = () => stopCurrent();
+
+      if (audioCtx) {
+        // AudioContext path — works on mobile where <Audio>.play() is blocked
+        const decoded = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+        const source = audioCtx.createBufferSource();
+        source.buffer = decoded;
+        source.connect(audioCtx.destination);
+        source.start(0);
+        source.onended = () => { audioCtx.close(); stopCurrent(); };
+      } else {
+        // Fallback to blob URL for desktop
+        const blob = new Blob([bytes], { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        await audio.play();
+        audio.onended = () => stopCurrent();
+        audio.onerror = () => stopCurrent();
+      }
     } catch {
       setLoadingId(null);
-      // Fallback to browser TTS
-      if (window.speechSynthesis) {
-        setPlayingId(voice.id);
-        const utt = new SpeechSynthesisUtterance(text);
-        utt.onend = () => setPlayingId(null);
-        window.speechSynthesis.speak(utt);
-      }
+      audioCtx?.close();
+      // Fallback: browser TTS with proper per-voice settings
+      setPlayingId(voice.id);
+      await previewVoice(voice.id, voice.speed || 1.0, voice.pitch || 1.0);
+      setPlayingId(null);
     }
   };
 
