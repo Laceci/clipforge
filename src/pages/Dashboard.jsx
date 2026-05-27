@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, X } from 'lucide-react';
+import ExportButton from '../components/ui/ExportButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -194,14 +195,30 @@ export default function Dashboard() {
                 <span className="ml-2 text-[10px] text-muted-foreground font-normal">({filteredProjects.length})</span>
               )}
             </h2>
-            {hasActiveFilter && (
-              <button
-                onClick={() => { setActiveFilter('all'); setCategoryChip(null); setSearch(''); }}
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="w-3 h-3" /> Clear filters
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <ExportButton
+                rows={filteredProjects}
+                columns={[
+                  { label: 'Title',        key: 'title' },
+                  { label: 'Status',       key: 'status' },
+                  { label: 'Duration (s)', key: 'duration' },
+                  { label: 'Scenes',       getValue: r => r.scenes?.length ?? '' },
+                  { label: 'Visual Style', key: 'visual_style' },
+                  { label: 'Resolution',   key: 'resolution' },
+                  { label: 'Created',      getValue: r => r.created_date ? new Date(r.created_date).toLocaleDateString('en-GB') : '' },
+                ]}
+                filename="clipforge-projects"
+                title={hasActiveFilter ? 'Filtered Projects' : 'All Projects'}
+              />
+              {hasActiveFilter && (
+                <button
+                  onClick={() => { setActiveFilter('all'); setCategoryChip(null); setSearch(''); }}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-3 h-3" /> Clear filters
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Search bar */}

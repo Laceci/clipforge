@@ -3,6 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { TrendingUp, TrendingDown, Eye, Heart, MessageCircle, Share2, Film, RefreshCw, ArrowUpRight } from 'lucide-react';
+import ExportButton from '../components/ui/ExportButton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import PlatformBadge from '../components/publish/PlatformBadge';
@@ -149,9 +150,25 @@ export default function Analytics() {
           <h1 className="text-2xl font-bold">Analytics</h1>
           <p className="text-sm text-muted-foreground mt-1">Track performance across all published videos</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 px-3 py-2 rounded-xl">
-          <RefreshCw className="w-3.5 h-3.5" />
-          Simulated · Connect platforms for live data
+        <div className="flex items-center gap-2">
+          <ExportButton
+            rows={displayPosts.map((p, i) => ({ ...p, ...allStats[i] }))}
+            columns={[
+              { label: 'Video Title',      getValue: r => r.project_title || 'Untitled' },
+              { label: 'Platforms',        getValue: r => r.platforms?.join(', ') || '' },
+              { label: 'Views',            key: 'views' },
+              { label: 'Likes',            key: 'likes' },
+              { label: 'Comments',         key: 'comments' },
+              { label: 'Shares',           key: 'shares' },
+              { label: 'Engagement Rate',  getValue: r => `${r.engRate}%` },
+            ]}
+            filename="clipforge-analytics"
+            title="Video Analytics"
+          />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 px-3 py-2 rounded-xl">
+            <RefreshCw className="w-3.5 h-3.5" />
+            Simulated · Connect platforms for live data
+          </div>
         </div>
       </div>
 
