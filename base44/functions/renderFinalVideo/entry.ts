@@ -14,6 +14,18 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.23';
  *   CREATOMATE_API_KEY  — from creatomate.com
  */
 
+const OPENAI_VOICE_MAP: Record<string, string> = {
+  morgan_deep: 'onyx',   alex_warm: 'echo',      claire_soothing: 'nova',
+  nova_clear: 'shimmer', titan_power: 'onyx',    blaze_bold: 'echo',
+  sophia_inspire: 'nova', zara_fierce: 'alloy',  zen_deep: 'onyx',
+  aurora_soft: 'shimmer', marcus_clear: 'echo',  ivy_crisp: 'nova',
+  sterling_pro: 'onyx',  diana_executive: 'shimmer', jake_casual: 'fable',
+  mia_friendly: 'nova',  eli_tender: 'echo',     luna_warm: 'nova',
+  sage_gentle: 'shimmer', reed_peaceful: 'onyx', theo_smart: 'echo',
+  raven_dark: 'onyx',    shadow_intense: 'onyx', void_eerie: 'shimmer',
+  kai_trendy: 'fable',
+};
+
 const EL_VOICE_MAP: Record<string, string> = {
   morgan_deep:     'nPczCjzI2devNBz1zQrb',
   alex_warm:       'ErXwobaYiN019PkySvjV',
@@ -116,48 +128,64 @@ Deno.serve(async (req) => {
     if (!script?.trim()) return Response.json({ error: 'script is required' }, { status: 400 });
     if (!scenes?.length)  return Response.json({ error: 'scenes array is required' }, { status: 400 });
 
-    const elKey = Deno.env.get('ELEVENLABS_API_KEY');
+    const elKey  = Deno.env.get('ELEVENLABS_API_KEY');
+    const oaiKey = Deno.env.get('OPENAI_API_KEY');
 
-    if (!elKey)  throw new Error('ELEVENLABS_API_KEY is not set in environment variables. Add it in Base44 → Functions.');
-    if (!cmKey)  throw new Error('CREATOMATE_API_KEY is not set in environment variables. Add it in Base44 → Functions.');
+    if (!cmKey) throw new Error('CREATOMATE_API_KEY is not set in environment variables. Add it in Base44 → Functions.');
+    if (!elKey && !oaiKey) throw new Error('No TTS key found. Add ELEVENLABS_API_KEY or OPENAI_API_KEY in Base44 → Functions.');
 
-    // 1. Generate voiceover
-    const elVoiceId = EL_VOICE_MAP[voice_id] || DEFAULT_EL_VOICE;
-    const speed     = Math.min(1.2, Math.max(0.7, Number(voice_speed) || 1.0));
+    // 1. Generate voiceover — ElevenLabs first, OpenAI TTS as silent fallback
+    const speed = Math.min(1.2, Math.max(0.7, Number(voice_speed) || 1.0));
+    let audioBuffer: ArrayBuffer | null = null;
+    let ttsProvider = 'none';
 
-    console.log(`[RenderFinal] 🎤 Generating voiceover | voice: ${elVoiceId} | speed: ${speed}`);
-
-    const elRes = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${elVoiceId}?output_format=mp3_44100_128`,
-      {
-        method: 'POST',
-        headers: {
-          'xi-api-key':   elKey,
-          'Content-Type': 'application/json',
-          'Accept':       'audio/mpeg',
-        },
-        body: JSON.stringify({
-          text:     script.slice(0, 5000),
-          model_id: 'eleven_turbo_v2_5',
-          voice_settings: {
-            stability:        0.5,
-            similarity_boost: 0.75,
-            speed,
-          },
-        }),
+    if (elKey) {
+      const elVoiceId = EL_VOICE_MAP[voice_id] || DEFAULT_EL_VOICE;
+      console.log(`[RenderFinal] 🎤 ElevenLabs | voice: ${elVoiceId} | speed: ${speed}`);
+      try {
+        const elRes = await fetch(
+          `https://api.elevenlabs.io/v1/text-to-speech/${elVoiceId}?output_format=mp3_44100_128`,
+          {
+            method: 'POST',
+            headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+            body: JSON.stringify({
+              text: script.slice(0, 5000),
+              model_id: 'eleven_turbo_v2_5',
+              voice_settings: { stability: 0.5, similarity_boost: 0.75, speed },
+            }),
+          }
+        );
+        if (elRes.ok) {
+          audioBuffer = await elRes.arrayBuffer();
+          ttsProvider = 'elevenlabs';
+        } else {
+          const errBody = await elRes.text();
+          console.warn(`[RenderFinal] ⚠️  ElevenLabs failed (${elRes.status}): ${errBody.slice(0, 100)} — trying OpenAI TTS`);
+        }
+      } catch (e) {
+        console.warn(`[RenderFinal] ⚠️  ElevenLabs error: ${e.message} — trying OpenAI TTS`);
       }
-    );
-
-    if (!elRes.ok) {
-      const errBody = await elRes.text();
-      if (elRes.status === 401) throw new Error('ELEVENLABS_API_KEY is invalid or expired.');
-      if (elRes.status === 429) throw new Error('ElevenLabs quota exceeded. Upgrade at elevenlabs.io.');
-      if (elRes.status === 422) throw new Error(`ElevenLabs rejected the payload: ${errBody.slice(0, 150)}`);
-      throw new Error(`ElevenLabs ${elRes.status}: ${errBody.slice(0, 150)}`);
     }
 
-    const audioBuffer = await elRes.arrayBuffer();
-    console.log(`[RenderFinal] ✅ Voiceover: ${(audioBuffer.byteLength / 1024).toFixed(1)} KB`);
+    if (!audioBuffer && oaiKey) {
+      const oaiVoice = OPENAI_VOICE_MAP[voice_id] || 'onyx';
+      console.log(`[RenderFinal] 🎤 OpenAI TTS | voice: ${oaiVoice} | speed: ${speed}`);
+      const oaiRes = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${oaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'tts-1-hd', input: script.slice(0, 4096), voice: oaiVoice, speed, response_format: 'mp3' }),
+      });
+      if (oaiRes.ok) {
+        audioBuffer = await oaiRes.arrayBuffer();
+        ttsProvider = 'openai';
+      } else {
+        const errBody = await oaiRes.text();
+        throw new Error(`OpenAI TTS failed (${oaiRes.status}): ${errBody.slice(0, 150)}`);
+      }
+    }
+
+    if (!audioBuffer) throw new Error('Voiceover generation failed — both ElevenLabs and OpenAI TTS unavailable.');
+    console.log(`[RenderFinal] ✅ Voiceover via ${ttsProvider}: ${(audioBuffer.byteLength / 1024).toFixed(1)} KB`);
 
     // 2. Upload audio to Creatomate asset storage
     console.log('[RenderFinal] ⬆️  Uploading audio to Creatomate...');
