@@ -376,7 +376,32 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
   const isReady = !isFailed && hasScenes && hasImages;
 
   const [showSchedule, setShowSchedule] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const queryClient = useQueryClient();
+
+  const handleDownload = async () => {
+    const url = projectData.video_url;
+    if (!url) return;
+    setDownloading(true);
+    try {
+      // Fetch as blob so browser saves as a file (works for cross-origin CDN URLs)
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${(projectData.title || projectData.topic || 'clipforge-video').replace(/[^a-z0-9_-]/gi, '_')}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      // If blob fetch fails (e.g. CORS), open directly in a new tab as fallback
+      window.open(url, '_blank');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // Logging on mount
   useEffect(() => {
@@ -539,28 +564,37 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
               </Button>
             ) : isReady ? (
               <>
-                {projectId && (
-                  <Link to={`/editor?id=${projectId}`} className="block">
-                    <Button variant="outline" className="w-full rounded-xl gap-2 border-border">
-                      <Edit className="w-4 h-4" /> Edit in Editor
-                    </Button>
-                  </Link>
-                )}
-
-                {/* MP4 download — real file if render is done */}
+                {/* ── MP4 render / download ── */}
                 {projectData.video_url ? (
-                  <a
-                    href={projectData.video_url}
-                    download={`${projectData.title || 'clipforge-video'}.mp4`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block"
-                    onClick={onExport}
-                  >
-                    <Button className="w-full rounded-xl gap-2 bg-primary text-primary-foreground hover:bg-primary/90 neon-glow">
-                      <Download className="w-4 h-4" /> Download MP4
+                  <>
+                    {/* Primary: Download MP4 */}
+                    <Button
+                      onClick={handleDownload}
+                      disabled={downloading}
+                      className="w-full rounded-xl gap-2 bg-primary text-primary-foreground hover:bg-primary/90 neon-glow font-bold"
+                    >
+                      {downloading
+                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Preparing download...</>
+                        : <><Download className="w-4 h-4" /> Download MP4</>}
                     </Button>
-                  </a>
+
+                    {/* Secondary: Post to Social */}
+                    <Button
+                      onClick={() => setShowSchedule(true)}
+                      variant="outline"
+                      className="w-full rounded-xl gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                    >
+                      <Send className="w-4 h-4" /> Post to Social Media
+                    </Button>
+
+                    {/* Tertiary: back to dashboard */}
+                    <button
+                      onClick={onExport}
+                      className="w-full text-center text-[11px] text-muted-foreground hover:text-foreground transition-colors pt-1"
+                    >
+                      ← Back to Dashboard
+                    </button>
+                  </>
                 ) : renderState.status === 'submitting' ? (
                   <Button disabled className="w-full rounded-xl gap-2 bg-primary/50 text-primary-foreground">
                     <Loader2 className="w-4 h-4 animate-spin" /> Generating voiceover...
@@ -587,7 +621,7 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
                 ) : (
                   <Button
                     onClick={onRender}
-                    className="w-full rounded-xl gap-2 bg-primary text-primary-foreground hover:bg-primary/90 neon-glow"
+                    className="w-full rounded-xl gap-2 bg-primary text-primary-foreground hover:bg-primary/90 neon-glow font-bold"
                   >
                     <Film className="w-4 h-4" /> Render & Download MP4
                   </Button>
