@@ -17,7 +17,7 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
   const [sceneIdx, setSceneIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [sceneTime, setSceneTime] = useState(0);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
   const rafRef = useRef(null);
   const startRef = useRef(null);
   const isSpeakingRef = useRef(false);
@@ -202,6 +202,11 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
         </div>
 
         <p className="text-center text-[10px] text-white/50">{fmtTime(elapsed)} / {fmtTime(totalDuration)}</p>
+        {!muted && (
+          <p className="text-center text-[9px] text-amber-400/70 leading-tight">
+            Browser preview · final MP4 uses your ElevenLabs voice
+          </p>
+        )}
       </div>
 
       <style>{`
