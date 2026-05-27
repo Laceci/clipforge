@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { downloadVideo } from '@/lib/downloadVideo';
 import { Link } from 'react-router-dom';
 import { computeSceneTiming } from '@/lib/timingEngine';
 import CaptionRenderer from '@/components/preview/CaptionRenderer';
@@ -385,32 +386,10 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
     `${(projectData.title || projectData.topic || 'clipforge-video').replace(/[^a-z0-9_\- ]/gi, '').trim() || 'video'}.mp4`;
 
   const handleDownload = async () => {
-    const url = projectData.video_url;
-    if (!url) return;
+    if (!projectData.video_url || downloading) return;
     setDownloading(true);
-    const toastId = toast.loading('Preparing your MP4 download...');
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = getFilename();
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Revoke after 2 minutes — browser needs time to read the blob
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-      toast.success('Download started! Check your Downloads folder.', { id: toastId });
-    } catch {
-      toast.dismiss(toastId);
-      // CORS or network failure — open in new tab where user can right-click → Save
-      window.open(url, '_blank');
-      toast.info('Video opened in a new tab — right-click the video and choose "Save video as…"', { duration: 8000 });
-    } finally {
-      setDownloading(false);
-    }
+    await downloadVideo(projectData.video_url, projectData.title || projectData.topic);
+    setDownloading(false);
   };
 
   const handleCopyLink = () => {

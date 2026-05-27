@@ -14,6 +14,7 @@ import VoicePreviewPanel from '../components/editor/VoicePreviewPanel';
 import ScenePreview from '../components/preview/ScenePreview';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { downloadVideo } from '@/lib/downloadVideo';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Link } from 'react-router-dom';
 
@@ -73,30 +74,10 @@ export default function Editor() {
   };
 
   const handleDownload = async () => {
-    const url = currentData?.video_url;
-    if (!url || downloading) return;
+    if (!currentData?.video_url || downloading) return;
     setDownloading(true);
-    const toastId = toast.loading('Preparing download...');
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = `${(currentData.title || 'video').replace(/[^a-z0-9_\- ]/gi, '').trim() || 'video'}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-      toast.success('Download started! Check your Downloads folder.', { id: toastId });
-    } catch {
-      toast.dismiss(toastId);
-      window.open(url, '_blank');
-      toast.info('Video opened in new tab — right-click → Save video as…', { duration: 8000 });
-    } finally {
-      setDownloading(false);
-    }
+    await downloadVideo(currentData.video_url, currentData.title);
+    setDownloading(false);
   };
 
   const handleRender = async () => {
