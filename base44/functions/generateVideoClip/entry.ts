@@ -326,21 +326,41 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── MODE: Image fallback ─────────────────────────────────────────────
-    // Also catch unknown/unsupported providers (fal_video, runway, luma etc.) — don't let them fall to Kling accidentally
+    // ── MODE: Image fallback (DALL-E 3 via OpenAI) ──────────────────────
+    // Also catches unknown/unsupported providers (fal_video, runway, luma, etc.)
     const SUPPORTED_PROVIDERS = ['higgsfield', 'pexels_stock', 'image_fallback'];
     if (provider === 'image_fallback' || !falKey || !SUPPORTED_PROVIDERS.includes(provider)) {
-      try {
-        const imagePrompt = (body.sceneText || body.prompt || '').slice(0, 300);
-        const imgRes = await base44.integrations.Core.GenerateImage({ prompt: imagePrompt });
-        const imageUrl = imgRes && imgRes.url ? imgRes.url : (imgRes && imgRes.image_url ? imgRes.image_url : imgRes);
-        if (imageUrl && typeof imageUrl === 'string') {
-          return Response.json({ image_url: imageUrl, clip_type: 'still-image-fallback', provider_used: 'image_fallback', pending: false });
+      const openaiKey = Deno.env.get('OPENAI_API_KEY');
+      if (openaiKey) {
+        try {
+          const imagePrompt = (body.sceneText || body.prompt || '').slice(0, 900);
+          const dalleRes = await fetch('https://api.openai.com/v1/images/generate', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + openaiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: 'dall-e-3',
+              prompt: `Cinematic portrait photo for a vertical social media video: ${imagePrompt}. No text, no watermarks, dramatic lighting, 9:16 vertical composition, photorealistic.`,
+              n: 1,
+              size: '1024x1792',
+              quality: 'standard',
+            }),
+          });
+          if (dalleRes.ok) {
+            const dalleData = await dalleRes.json();
+            const imageUrl = dalleData.data?.[0]?.url;
+            if (imageUrl) {
+              console.log('[Image] DALL-E 3 success');
+              return Response.json({ image_url: imageUrl, clip_type: 'still-image', provider_used: 'dalle3', pending: false });
+            }
+          } else {
+            const errText = await dalleRes.text();
+            console.warn('[Image] DALL-E 3 failed:', dalleRes.status, errText.slice(0, 150));
+          }
+        } catch (imgErr) {
+          console.warn('[Image] DALL-E 3 exception:', imgErr.message);
         }
-      } catch (imgErr) {
-        console.warn('[generateVideoClip] Image fallback failed:', imgErr.message);
       }
-      return Response.json({ failure_reason: 'image_generation_failed', pending: false });
+      return Response.json({ failure_reason: 'image_generation_failed', error: 'Add OPENAI_API_KEY in Base44 Secrets to enable image generation', pending: false });
     }
 
     // ── MODE: Submit Kling v1.6 video job ────────────────────────────────

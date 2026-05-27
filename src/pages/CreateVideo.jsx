@@ -168,8 +168,8 @@ export default function CreateVideo() {
       });
       setSavedProjectId(initProject.id);
 
-      // Use image_fallback by default to avoid fal.ai costs during testing
-      enhancedProjectData.video_provider = userPrefs?.video_provider ?? 'image_fallback';
+      // Default to Pexels (free stock video). Falls back to DALL-E 3 if no match found.
+      enhancedProjectData.video_provider = userPrefs?.video_provider ?? 'pexels_stock';
 
       const result = await runVideoPipeline(enhancedProjectData, (prog) => {
         setGenProgress(prog);
