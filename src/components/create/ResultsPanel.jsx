@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Play, Pause, SkipBack, SkipForward, Download, Send, Edit,
-  RefreshCw, CheckCircle2, AlertCircle, Volume2, VolumeX, Mic, Music, ImageIcon, Zap, Loader2, Film
+  RefreshCw, CheckCircle2, AlertCircle, Volume2, VolumeX, Mic, Music, ImageIcon, Zap, Loader2, Film, Link2, Check as CheckIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { computeSceneTiming } from '@/lib/timingEngine';
 import CaptionRenderer from '@/components/preview/CaptionRenderer';
@@ -377,30 +378,48 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
 
   const [showSchedule, setShowSchedule] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [copyDone, setCopyDone] = useState(false);
   const queryClient = useQueryClient();
+
+  const getFilename = () =>
+    `${(projectData.title || projectData.topic || 'clipforge-video').replace(/[^a-z0-9_\- ]/gi, '').trim() || 'video'}.mp4`;
 
   const handleDownload = async () => {
     const url = projectData.video_url;
     if (!url) return;
     setDownloading(true);
+    const toastId = toast.loading('Preparing your MP4 download...');
     try {
-      // Fetch as blob so browser saves as a file (works for cross-origin CDN URLs)
       const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
-      a.download = `${(projectData.title || projectData.topic || 'clipforge-video').replace(/[^a-z0-9_-]/gi, '_')}.mp4`;
+      a.download = getFilename();
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
+      // Revoke after 2 minutes — browser needs time to read the blob
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      toast.success('Download started! Check your Downloads folder.', { id: toastId });
     } catch {
-      // If blob fetch fails (e.g. CORS), open directly in a new tab as fallback
+      toast.dismiss(toastId);
+      // CORS or network failure — open in new tab where user can right-click → Save
       window.open(url, '_blank');
+      toast.info('Video opened in a new tab — right-click the video and choose "Save video as…"', { duration: 8000 });
     } finally {
       setDownloading(false);
     }
+  };
+
+  const handleCopyLink = () => {
+    if (!projectData.video_url) return;
+    navigator.clipboard.writeText(projectData.video_url).then(() => {
+      setCopyDone(true);
+      toast.success('Link copied! Paste it into any browser to download or share.');
+      setTimeout(() => setCopyDone(false), 3000);
+    });
   };
 
   // Logging on mount
@@ -577,6 +596,16 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
                         ? <><Loader2 className="w-4 h-4 animate-spin" /> Preparing download...</>
                         : <><Download className="w-4 h-4" /> Download MP4</>}
                     </Button>
+
+                    {/* Copy link fallback */}
+                    <button
+                      onClick={handleCopyLink}
+                      className="w-full flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors py-1"
+                    >
+                      {copyDone
+                        ? <><CheckIcon className="w-3 h-3 text-primary" /> Link copied!</>
+                        : <><Link2 className="w-3 h-3" /> Copy video link (if download doesn't start)</>}
+                    </button>
 
                     {/* Secondary: Post to Social */}
                     <Button
