@@ -1,0 +1,175 @@
+{
+  "name": "UserPreferences",
+  "type": "object",
+  "properties": {
+    "default_voice_preset": {
+      "type": "string",
+      "default": "deep_story_narrator"
+    },
+    "default_voice_speed": {
+      "type": "number",
+      "default": 1.0
+    },
+    "default_voice_pitch": {
+      "type": "number",
+      "default": 1.0
+    },
+    "default_visual_style": {
+      "type": "string",
+      "default": "cinematic"
+    },
+    "default_caption_style": {
+      "type": "string",
+      "default": "tiktok_bold"
+    },
+    "default_caption_color": {
+      "type": "string",
+      "default": "#FFFFFF"
+    },
+    "default_highlight_color": {
+      "type": "string",
+      "default": "#A3E635"
+    },
+    "default_animation_style": {
+      "type": "string",
+      "default": "pan_zoom"
+    },
+    "default_music_category": {
+      "type": "string",
+      "default": "epic_cinematic"
+    },
+    "default_resolution": {
+      "type": "string",
+      "default": "1080p"
+    },
+    "default_platforms": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "default_publish_mode": {
+      "type": "string",
+      "enum": [
+        "instant",
+        "scheduled"
+      ],
+      "default": "instant"
+    },
+    "default_hashtags": {
+      "type": "object"
+    },
+    "auto_publish": {
+      "type": "boolean",
+      "default": false
+    },
+    "auto_publish_delay_minutes": {
+      "type": "number",
+      "default": 0
+    },
+    "video_provider": {
+      "type": "string",
+      "enum": [
+        "image_fallback",
+        "fal_video",
+        "runway",
+        "luma"
+      ],
+      "default": "image_fallback",
+      "description": "Video generation provider for cinematic clips"
+    },
+    "api_key_fal_video": {
+      "type": "string",
+      "default": "",
+      "description": "fal.ai API key"
+    },
+    "api_key_runway": {
+      "type": "string",
+      "default": "",
+      "description": "Runway ML API key"
+    },
+    "api_key_luma": {
+      "type": "string",
+      "default": "",
+      "description": "Luma AI API key"
+    },
+    "brand_primary_color": {
+      "type": "string",
+      "default": "#A3E635",
+      "description": "Brand primary color for captions"
+    },
+    "brand_accent_color": {
+      "type": "string",
+      "default": "#FFFFFF",
+      "description": "Brand accent color"
+    },
+    "brand_background_color": {
+      "type": "string",
+      "default": "#000000",
+      "description": "Brand background/shadow color"
+    },
+    "brand_hashtags_global": {
+      "type": "string",
+      "default": "",
+      "description": "Hashtags always appended to every post"
+    },
+    "brand_font_name": {
+      "type": "string",
+      "default": "",
+      "description": "Custom brand font name"
+    },
+    "brand_font_url": {
+      "type": "string",
+      "default": "",
+      "description": "Uploaded custom font file URL"
+    },
+    "brand_watermark_logo_url": {
+      "type": "string",
+      "default": "",
+      "description": "Watermark logo image URL"
+    },
+    "brand_watermark_position": {
+      "type": "string",
+      "enum": [
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right",
+        "center"
+      ],
+      "default": "bottom-right",
+      "description": "Position of watermark on video"
+    },
+    "brand_watermark_opacity": {
+      "type": "number",
+      "default": 0.8,
+      "description": "Opacity of watermark (0-1)"
+    },
+    "brand_watermark_scale": {
+      "type": "number",
+      "default": 0.15,
+      "description": "Scale of watermark relative to video (0-1)"
+    },
+    "brand_watermark_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable automatic watermark on all videos"
+    }
+  },
+  "required": [],
+  "rls": {
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "read": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}

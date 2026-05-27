@@ -1,0 +1,50 @@
+{
+  "name": "SavedScript",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "motivation",
+        "storytelling",
+        "facts",
+        "horror",
+        "finance",
+        "fitness",
+        "custom"
+      ],
+      "default": "custom"
+    },
+    "word_count": {
+      "type": "number"
+    },
+    "estimated_duration": {
+      "type": "number",
+      "description": "Estimated duration in seconds"
+    }
+  },
+  "required": [
+    "title",
+    "content"
+  ],
+  "rls": {
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "read": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}
