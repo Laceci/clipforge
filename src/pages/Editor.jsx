@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ArrowLeft, Save, Download, Play, Film, Sparkles, Layers, Palette, Volume2, Send, AlertCircle, Mic } from 'lucide-react';
+import { ArrowLeft, Save, Download, Play, Film, Sparkles, Layers, Palette, Volume2, Send, AlertCircle, Mic, Loader2 } from 'lucide-react';
 import SceneEditorCard from '../components/editor/SceneEditorCard';
 import AITransitionsPanel from '../components/editor/AITransitionsPanel';
 import AIColorGradingPanel from '../components/editor/AIColorGradingPanel';
@@ -31,7 +31,14 @@ export default function Editor() {
   });
 
   const [editedProject, setEditedProject] = useState(null);
+  const [renderState, setRenderState] = useState({ status: 'idle', error: null });
+  const [downloading, setDownloading] = useState(false);
+  const pollIntervalRef = useRef(null);
   const currentData = editedProject || project;
+
+  useEffect(() => {
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, []);
 
   useEffect(() => {
     if (project && !editedProject) setEditedProject({ ...project });
@@ -63,6 +70,90 @@ export default function Editor() {
     const [moved] = scenes.splice(result.source.index, 1);
     scenes.splice(result.destination.index, 0, moved);
     setEditedProject({ ...currentData, scenes: scenes.map((s, i) => ({ ...s, order: i })) });
+  };
+
+  const handleDownload = async () => {
+    const url = currentData?.video_url;
+    if (!url || downloading) return;
+    setDownloading(true);
+    const toastId = toast.loading('Preparing download...');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${(currentData.title || 'video').replace(/[^a-z0-9_\- ]/gi, '').trim() || 'video'}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      toast.success('Download started! Check your Downloads folder.', { id: toastId });
+    } catch {
+      toast.dismiss(toastId);
+      window.open(url, '_blank');
+      toast.info('Video opened in new tab — right-click → Save video as…', { duration: 8000 });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleRender = async () => {
+    const scenes = currentData?.scenes;
+    if (!scenes?.length) { toast.error('No scenes to render.'); return; }
+    setRenderState({ status: 'submitting', error: null });
+    try {
+      const script = scenes.map(s => s.text || s.caption || '').filter(Boolean).join(' ') || currentData.topic || '';
+      const result = await base44.functions.invoke('renderFinalVideo', {
+        script,
+        voice_id: currentData.voice_id,
+        voice_speed: currentData.voice_speed || 1.0,
+        scenes: scenes.map(s => ({
+          image_url: s.image_url || null,
+          video_url: s.video_url || null,
+          duration: s.duration || 5,
+          caption: s.caption || s.text || '',
+        })),
+        caption_style: currentData.caption_style || 'tiktok_bold',
+        highlight_color: currentData.highlight_color || '#A3E635',
+        resolution: currentData.resolution || '1080p',
+      });
+      const data = result?.data;
+      if (data?.error) throw new Error(data.error);
+      if (!data?.render_id) throw new Error('No render ID returned. Check ELEVENLABS_API_KEY and CREATOMATE_API_KEY in Base44 Secrets.');
+      const renderId = data.render_id;
+      setRenderState({ status: 'rendering', error: null });
+      toast.success('Voiceover done! Rendering MP4 — check back in 1–2 min…');
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const poll = await base44.functions.invoke('renderFinalVideo', { render_id: renderId });
+          const pd = poll?.data;
+          if (!pd?.pending) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            if (pd?.video_url) {
+              await base44.entities.Project.update(projectId, { video_url: pd.video_url, status: 'exported' }).catch(() => {});
+              setEditedProject(prev => ({ ...prev, video_url: pd.video_url }));
+              setRenderState({ status: 'done', error: null });
+              toast.success('MP4 ready! Click Export to download.');
+            } else {
+              setRenderState({ status: 'failed', error: pd?.error || 'Render failed' });
+              toast.error(pd?.error || 'Render failed');
+            }
+          }
+        } catch (pollErr) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setRenderState({ status: 'failed', error: pollErr.message });
+          toast.error('Polling error: ' + pollErr.message);
+        }
+      }, 6000);
+    } catch (err) {
+      setRenderState({ status: 'failed', error: err.message });
+      toast.error('Render failed: ' + err.message);
+    }
   };
 
   const handleSave = () => {
@@ -120,10 +211,34 @@ export default function Editor() {
             <Save className="w-4 h-4" />
             {updateMutation.isPending ? 'Saving...' : 'Save'}
           </Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl gap-2 text-sm neon-glow">
-            <Download className="w-4 h-4" />
-            Export
-          </Button>
+          {currentData?.video_url ? (
+            <Button
+              onClick={handleDownload}
+              disabled={downloading}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl gap-2 text-sm neon-glow"
+            >
+              {downloading
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Downloading...</>
+                : <><Download className="w-4 h-4" /> Download MP4</>}
+            </Button>
+          ) : renderState.status === 'submitting' ? (
+            <Button disabled className="bg-primary/50 text-primary-foreground rounded-xl gap-2 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" /> Generating voiceover...
+            </Button>
+          ) : renderState.status === 'rendering' ? (
+            <Button disabled className="bg-primary/50 text-primary-foreground rounded-xl gap-2 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" /> Rendering MP4...
+            </Button>
+          ) : (
+            <Button
+              onClick={handleRender}
+              disabled={renderState.status === 'submitting' || renderState.status === 'rendering'}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl gap-2 text-sm neon-glow"
+            >
+              <Download className="w-4 h-4" />
+              {renderState.status === 'failed' ? 'Retry Render' : 'Export MP4'}
+            </Button>
+          )}
         </div>
       </div>
 
