@@ -52,9 +52,18 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [categoryChip, setCategoryChip] = useState(null);
 
+  const { data: currentUser } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => base44.auth.me(),
+  });
+
   const { data: projects = [], isLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => base44.entities.Project.filter({ is_template: false }, '-created_date'),
+    queryKey: ['projects', currentUser?.email],
+    queryFn: () => base44.entities.Project.filter(
+      { is_template: false, created_by: currentUser.email },
+      '-created_date'
+    ),
+    enabled: !!currentUser?.email,
     refetchInterval: (query) => {
       const data = query.state.data;
       const hasActive = Array.isArray(data) && data.some(p => p.status === 'generating' || p.status === 'rendering');
