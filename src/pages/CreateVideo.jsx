@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { useQuery } from '@tanstack/react-query';
@@ -73,6 +73,13 @@ export default function CreateVideo() {
   const [genError, setGenError] = useState(null);
   const [savedProjectId, setSavedProjectId] = useState(null);
   const [showScriptInput, setShowScriptInput] = useState(false);
+  const [renderState, setRenderState] = useState({ status: 'idle', render_id: null, video_url: null, error: null });
+  const pollIntervalRef = useRef(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, []);
 
   // Load user preferences
   const { data: prefsList = [] } = useQuery({
@@ -219,10 +226,80 @@ export default function CreateVideo() {
 
   const handleExport = async () => {
     if (savedProjectId) {
-      await base44.entities.Project.update(savedProjectId, { status: 'exported' });
+      await base44.entities.Project.update(savedProjectId, { status: 'exported' }).catch(() => {});
     }
     await base44.entities.UsageLog.create({ action: 'video_exported', project_id: savedProjectId, details: { title: projectData.title } }).catch(() => {});
     navigate('/');
+  };
+
+  const handleRender = async () => {
+    if (!projectData.scenes?.length) {
+      toast.error('No scenes to render.');
+      return;
+    }
+
+    setRenderState({ status: 'submitting', render_id: null, video_url: null, error: null });
+
+    try {
+      const script = projectData.scenes.map(s => s.text || s.caption || '').filter(Boolean).join(' ') || projectData.script || projectData.topic || '';
+
+      const result = await base44.functions.invoke('renderFinalVideo', {
+        script,
+        voice_id: projectData.voice_id,
+        voice_speed: projectData.voice_speed || 1.0,
+        scenes: projectData.scenes.map(s => ({
+          image_url: s.image_url || null,
+          video_url: s.video_url || null,
+          duration: s.duration || 5,
+          caption: s.caption || s.text || '',
+        })),
+        caption_style: projectData.caption_style || 'tiktok_bold',
+        highlight_color: projectData.highlight_color || '#A3E635',
+        resolution: projectData.resolution || '1080p',
+      });
+
+      const data = result?.data;
+      if (data?.error) throw new Error(data.error);
+      if (!data?.render_id) throw new Error('No render ID returned from server. Check ELEVENLABS_API_KEY and CREATOMATE_API_KEY in Base44 Secrets.');
+
+      const renderId = data.render_id;
+      setRenderState({ status: 'rendering', render_id: renderId, video_url: null, error: null });
+      toast.success('Voiceover generated! Rendering MP4 (this takes 1–2 min)...');
+
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const pollResult = await base44.functions.invoke('renderFinalVideo', { render_id: renderId });
+          const pd = pollResult?.data;
+
+          if (!pd?.pending) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+
+            if (pd?.video_url) {
+              updateData({ video_url: pd.video_url });
+              if (savedProjectId) {
+                await base44.entities.Project.update(savedProjectId, { video_url: pd.video_url, status: 'exported' }).catch(() => {});
+              }
+              setRenderState({ status: 'done', render_id: renderId, video_url: pd.video_url, error: null });
+              toast.success('MP4 ready! Click Download to save it.');
+            } else if (pd?.error) {
+              setRenderState({ status: 'failed', render_id: renderId, video_url: null, error: pd.error });
+              toast.error('Render failed: ' + pd.error);
+            }
+          }
+        } catch (pollErr) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setRenderState(prev => ({ ...prev, status: 'failed', error: pollErr.message }));
+          toast.error('Polling error: ' + pollErr.message);
+        }
+      }, 6000);
+
+    } catch (err) {
+      setRenderState({ status: 'failed', render_id: null, video_url: null, error: err.message });
+      toast.error('Render failed: ' + err.message);
+    }
   };
 
   const togglePlatform = (id) => {
@@ -429,6 +506,8 @@ export default function CreateVideo() {
               projectId={savedProjectId}
               onExport={handleExport}
               onRetry={() => { setStep(2); setGenError(null); }}
+              onRender={handleRender}
+              renderState={renderState}
             />
           )}
 

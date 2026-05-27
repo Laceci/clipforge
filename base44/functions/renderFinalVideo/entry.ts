@@ -1,24 +1,19 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.23';
 
 /**
- * ClipForge — Final Video Renderer
+ * ClipForge — Final Video Renderer (two-phase)
  *
- * Pipeline:
- *   1. Generate voiceover via ElevenLabs → MP3 binary
- *   2. Upload MP3 to Creatomate asset storage → audio CDN URL
- *   3. Build Creatomate JSON composition:
- *        - One image/video element per scene (Ken Burns zoom on images)
- *        - Caption text overlay per scene
- *        - Single voiceover audio track
- *   4. Submit render to Creatomate → poll until complete
- *   5. Return final MP4 URL
+ * Phase 1 (submit): Generate voiceover → upload audio → build composition → submit Creatomate job
+ *   Returns: { pending: true, render_id, audio_url }
+ *
+ * Phase 2 (poll): Pass render_id → check Creatomate status
+ *   Returns: { pending: true, status } OR { pending: false, video_url }
  *
  * Required env vars:
  *   ELEVENLABS_API_KEY  — from elevenlabs.io
  *   CREATOMATE_API_KEY  — from creatomate.com
  */
 
-// ─── ElevenLabs voice map ─────────────────────────────────────────────────────
 const EL_VOICE_MAP: Record<string, string> = {
   morgan_deep:     'nPczCjzI2devNBz1zQrb',
   alex_warm:       'ErXwobaYiN019PkySvjV',
@@ -28,27 +23,26 @@ const EL_VOICE_MAP: Record<string, string> = {
   blaze_bold:      'N2lVS1w4EtoT3dr4eOWO',
   sophia_inspire:  'pMsXgVXv3BLzUgSXRplE',
   zara_fierce:     'AZnzlk1XvdvUeBnXmlld',
-  eli_tender:      'GBv7mTt0atIp3Br8iCZE',
-  luna_warm:       'EXAVITQu4vr4xnSDxMaL',
-  sage_gentle:     '21m00Tcm4TlvDq8ikWAM',
+  eli_tender:      'ErXwobaYiN019PkySvjV',
+  luna_warm:       'pFZP5JQG7iQjIQuC4Bku',
+  sage_gentle:     'EXAVITQu4vr4xnSDxMaL',
   zen_deep:        'TxGEqnHWrfWFTfGW9XjX',
   aurora_soft:     'pFZP5JQG7iQjIQuC4Bku',
-  reed_peaceful:   'GBv7mTt0atIp3Br8iCZE',
+  reed_peaceful:   'TxGEqnHWrfWFTfGW9XjX',
   marcus_clear:    'TX3LPaxmHKxFdv7VOQHJ',
-  ivy_crisp:       '21m00Tcm4TlvDq8ikWAM',
-  theo_smart:      'IKne3meq5aSn9XLyUdCD',
-  raven_dark:      'TxGEqnHWrfWFTfGW9XjX',
-  shadow_intense:  'nPczCjzI2devNBz1zQrb',
-  void_eerie:      '21m00Tcm4TlvDq8ikWAM',
+  ivy_crisp:       'pMsXgVXv3BLzUgSXRplE',
+  theo_smart:      'TX3LPaxmHKxFdv7VOQHJ',
+  raven_dark:      'nPczCjzI2devNBz1zQrb',
+  shadow_intense:  'VR6AewLTigWG4xSOukaG',
+  void_eerie:      'AZnzlk1XvdvUeBnXmlld',
   jake_casual:     'IKne3meq5aSn9XLyUdCD',
   mia_friendly:    'EXAVITQu4vr4xnSDxMaL',
-  kai_trendy:      '29vD33N1CtxCmqQRPOHJ',
+  kai_trendy:      'IKne3meq5aSn9XLyUdCD',
   sterling_pro:    'onwK4e9ZLuTAKqWW03F9',
   diana_executive: 'pMsXgVXv3BLzUgSXRplE',
 };
 const DEFAULT_EL_VOICE = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 interface SceneInput {
   image_url: string | null;
   video_url: string | null;
@@ -56,7 +50,6 @@ interface SceneInput {
   caption: string;
 }
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
 
@@ -64,6 +57,52 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const body = await req.json();
+    const cmKey = Deno.env.get('CREATOMATE_API_KEY');
+
+    // ── PHASE 2: Poll existing render ────────────────────────────────────────
+    if (body.render_id) {
+      if (!cmKey) throw new Error('CREATOMATE_API_KEY is not set in environment variables.');
+
+      const pollRes = await fetch(`https://api.creatomate.com/v1/renders/${body.render_id}`, {
+        headers: { 'Authorization': `Bearer ${cmKey}` },
+      });
+
+      if (!pollRes.ok) {
+        const errText = await pollRes.text();
+        throw new Error(`Creatomate poll failed (${pollRes.status}): ${errText.slice(0, 100)}`);
+      }
+
+      const data = await pollRes.json();
+      console.log(`[RenderFinal] Poll ${body.render_id} | status: ${data.status}`);
+
+      if (data.status === 'succeeded') {
+        return Response.json({
+          pending:   false,
+          video_url: data.url,
+          render_id: body.render_id,
+          duration:  data.duration,
+        });
+      }
+
+      if (data.status === 'failed') {
+        return Response.json({
+          pending:   false,
+          error:     data.error_message || 'Render failed on Creatomate',
+          render_id: body.render_id,
+        });
+      }
+
+      // Still planned/rendering
+      return Response.json({
+        pending:   true,
+        status:    data.status,
+        render_id: body.render_id,
+        progress:  data.progress || 0,
+      });
+    }
+
+    // ── PHASE 1: Submit new render ────────────────────────────────────────────
     const {
       script,
       voice_id,
@@ -72,18 +111,17 @@ Deno.serve(async (req) => {
       caption_style = 'tiktok_bold',
       highlight_color = '#A3E635',
       resolution = '1080p',
-    } = await req.json();
+    } = body;
 
     if (!script?.trim()) return Response.json({ error: 'script is required' }, { status: 400 });
     if (!scenes?.length)  return Response.json({ error: 'scenes array is required' }, { status: 400 });
 
-    const elKey  = Deno.env.get('ELEVENLABS_API_KEY');
-    const cmKey  = Deno.env.get('CREATOMATE_API_KEY');
+    const elKey = Deno.env.get('ELEVENLABS_API_KEY');
 
     if (!elKey)  throw new Error('ELEVENLABS_API_KEY is not set in environment variables. Add it in Base44 → Functions.');
     if (!cmKey)  throw new Error('CREATOMATE_API_KEY is not set in environment variables. Add it in Base44 → Functions.');
 
-    // ── 1. Generate voiceover ─────────────────────────────────────────────
+    // 1. Generate voiceover
     const elVoiceId = EL_VOICE_MAP[voice_id] || DEFAULT_EL_VOICE;
     const speed     = Math.min(1.2, Math.max(0.7, Number(voice_speed) || 1.0));
 
@@ -121,7 +159,7 @@ Deno.serve(async (req) => {
     const audioBuffer = await elRes.arrayBuffer();
     console.log(`[RenderFinal] ✅ Voiceover: ${(audioBuffer.byteLength / 1024).toFixed(1)} KB`);
 
-    // ── 2. Upload audio to Creatomate ─────────────────────────────────────
+    // 2. Upload audio to Creatomate asset storage
     console.log('[RenderFinal] ⬆️  Uploading audio to Creatomate...');
 
     const formData = new FormData();
@@ -146,10 +184,10 @@ Deno.serve(async (req) => {
     const audioUrl      = uploadedAsset.url as string;
     console.log(`[RenderFinal] ✅ Audio URL: ${audioUrl}`);
 
-    // ── 3. Build Creatomate composition ───────────────────────────────────
-    const isHD      = resolution === '4k';
-    const width     = isHD ? 2160 : 1080;
-    const height    = isHD ? 3840 : 1920; // 9:16 vertical
+    // 3. Build Creatomate composition
+    const isHD  = resolution === '4k';
+    const width  = isHD ? 2160 : 1080;
+    const height = isHD ? 3840 : 1920; // 9:16 vertical
 
     const captionCss = buildCaptionStyle(caption_style, highlight_color);
 
@@ -162,12 +200,11 @@ Deno.serve(async (req) => {
       const isVideo  = !!scene.video_url;
 
       if (!mediaUrl) {
-        console.warn(`[RenderFinal] ⚠️  Scene at t=${currentTime}s has no media URL — skipping visual`);
+        console.warn(`[RenderFinal] ⚠️  Scene at t=${currentTime}s has no media URL — skipping`);
         currentTime += dur;
         continue;
       }
 
-      // ── Scene visual ──────────────────────────────────────────────────
       const visualElement: Record<string, unknown> = {
         type:        isVideo ? 'video' : 'image',
         source:      mediaUrl,
@@ -182,7 +219,7 @@ Deno.serve(async (req) => {
         duration:    dur,
       };
 
-      // Ken Burns zoom effect on still images
+      // Ken Burns zoom on still images
       if (!isVideo) {
         visualElement['animations'] = [
           {
@@ -198,7 +235,6 @@ Deno.serve(async (req) => {
 
       elements.push(visualElement);
 
-      // ── Caption text overlay ──────────────────────────────────────────
       const captionText = (scene.caption || '').trim();
       if (captionText) {
         elements.push({
@@ -218,7 +254,6 @@ Deno.serve(async (req) => {
       currentTime += dur;
     }
 
-    // ── Voiceover audio (full duration) ──────────────────────────────────
     elements.push({
       type:   'audio',
       source: audioUrl,
@@ -227,9 +262,9 @@ Deno.serve(async (req) => {
     });
 
     const totalDuration = currentTime;
-    console.log(`[RenderFinal] 🎬 Composition: ${elements.length} elements | ${totalDuration.toFixed(1)}s total`);
+    console.log(`[RenderFinal] 🎬 Composition: ${elements.length} elements | ${totalDuration.toFixed(1)}s`);
 
-    // ── 4. Submit render ──────────────────────────────────────────────────
+    // 4. Submit render — return render_id immediately, frontend polls
     const renderRes = await fetch('https://api.creatomate.com/v1/renders', {
       method: 'POST',
       headers: {
@@ -257,39 +292,14 @@ Deno.serve(async (req) => {
     const render        = Array.isArray(renderPayload) ? renderPayload[0] : renderPayload;
     const renderId      = render.id as string;
 
-    console.log(`[RenderFinal] 🚀 Render job: ${renderId} | status: ${render.status}`);
+    console.log(`[RenderFinal] 🚀 Render submitted: ${renderId} | status: ${render.status}`);
 
-    // ── 5. Poll until complete (max 120 s, every 5 s) ─────────────────────
-    for (let i = 0; i < 24; i++) {
-      await new Promise(r => setTimeout(r, 5000));
-
-      const pollRes  = await fetch(`https://api.creatomate.com/v1/renders/${renderId}`, {
-        headers: { 'Authorization': `Bearer ${cmKey}` },
-      });
-      const pollData = await pollRes.json();
-
-      console.log(`[RenderFinal] Poll ${i + 1}/24 | status: ${pollData.status}`);
-
-      if (pollData.status === 'succeeded') {
-        const videoUrl = pollData.url as string;
-        console.log(`[RenderFinal] ✅ Final MP4: ${videoUrl}`);
-        return Response.json({
-          video_url:     videoUrl,
-          audio_url:     audioUrl,
-          duration:      totalDuration,
-          render_id:     renderId,
-          voice_used:    elVoiceId,
-        });
-      }
-
-      if (pollData.status === 'failed') {
-        throw new Error(
-          `Creatomate render failed: ${pollData.error_message || JSON.stringify(pollData.error) || 'unknown reason'}`
-        );
-      }
-    }
-
-    throw new Error('Creatomate render timed out after 120 seconds. The job may still be processing — check creatomate.com dashboard.');
+    return Response.json({
+      pending:   true,
+      render_id: renderId,
+      audio_url: audioUrl,
+      status:    render.status,
+    });
 
   } catch (error) {
     console.error('[RenderFinal] ❌', error.message);
@@ -297,7 +307,6 @@ Deno.serve(async (req) => {
   }
 });
 
-// ─── Caption style builder ────────────────────────────────────────────────────
 function buildCaptionStyle(style: string, highlightColor: string): Record<string, string> {
   const base: Record<string, string> = {
     font_family:  'Montserrat',
@@ -313,16 +322,12 @@ function buildCaptionStyle(style: string, highlightColor: string): Record<string
   switch (style) {
     case 'tiktok_bold':
       return { ...base, font_size: '8 vmin', font_weight: '900', stroke_width: '0.5 vmin' };
-
     case 'highlight':
       return { ...base, color: highlightColor, font_size: '7.5 vmin' };
-
     case 'word_by_word':
       return { ...base, font_size: '9 vmin', font_weight: '900', stroke_width: '0.6 vmin' };
-
     case 'sentence':
       return { ...base, font_size: '6 vmin', font_weight: '600', stroke_width: '0.3 vmin' };
-
     default:
       return base;
   }

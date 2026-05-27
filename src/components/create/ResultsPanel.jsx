@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Play, Pause, SkipBack, SkipForward, Download, Send, Edit,
-  RefreshCw, CheckCircle2, AlertCircle, Volume2, VolumeX, Mic, Music, ImageIcon, Zap
+  RefreshCw, CheckCircle2, AlertCircle, Volume2, VolumeX, Mic, Music, ImageIcon, Zap, Loader2, Film
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
@@ -367,7 +367,7 @@ function AssetStatus({ icon: Icon, label, status }) {
 }
 
 // ─── Results Panel ────────────────────────────────────────────────────────────
-export default function ResultsPanel({ projectData, projectId, onExport, onRetry }) {
+export default function ResultsPanel({ projectData, projectId, onExport, onRetry, onRender, renderState = { status: 'idle' } }) {
   const scenes = projectData.scenes || [];
   const hasScenes = scenes.length > 0;
   const hasImages = scenes.some(s => s.image_url);
@@ -510,7 +510,9 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
               ? '⚠️ Generation failed. Check your topic and retry.'
               : projectData.video_url
                 ? '✅ Your MP4 is ready. Click Download to save it.'
-                : '▶ Preview ready — press Play above to watch with AI voiceover. MP4 export coming soon.'}
+                : renderState.status === 'rendering' || renderState.status === 'submitting'
+                  ? '⏳ Rendering your MP4 with ElevenLabs voiceover + Creatomate...'
+                  : '▶ Preview ready — press Play to watch. Click Render & Download MP4 to export.'}
           </div>
 
           {/* Rendered MP4 player — shown when final video is available */}
@@ -545,7 +547,7 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
                   </Link>
                 )}
 
-                {/* Download button — real MP4 if available, fallback to save action */}
+                {/* MP4 download — real file if render is done */}
                 {projectData.video_url ? (
                   <a
                     href={projectData.video_url}
@@ -559,14 +561,35 @@ export default function ResultsPanel({ projectData, projectId, onExport, onRetry
                       <Download className="w-4 h-4" /> Download MP4
                     </Button>
                   </a>
+                ) : renderState.status === 'submitting' ? (
+                  <Button disabled className="w-full rounded-xl gap-2 bg-primary/50 text-primary-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Generating voiceover...
+                  </Button>
+                ) : renderState.status === 'rendering' ? (
+                  <div className="space-y-2">
+                    <Button disabled className="w-full rounded-xl gap-2 bg-primary/50 text-primary-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Rendering MP4...
+                    </Button>
+                    <p className="text-[10px] text-center text-muted-foreground">
+                      This takes 1–2 min · stay on this page
+                    </p>
+                  </div>
+                ) : renderState.status === 'failed' ? (
+                  <div className="space-y-2">
+                    <div className="rounded-xl bg-destructive/5 border border-destructive/20 p-2.5 text-[10px] text-destructive flex items-start gap-2">
+                      <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                      <span>{renderState.error || 'Render failed. Check your API keys in Base44 Secrets.'}</span>
+                    </div>
+                    <Button onClick={onRender} className="w-full rounded-xl gap-2 bg-primary text-primary-foreground neon-glow">
+                      <RefreshCw className="w-4 h-4" /> Retry Render
+                    </Button>
+                  </div>
                 ) : (
                   <Button
-                    onClick={onExport}
-                    variant="outline"
-                    className="w-full rounded-xl gap-2 border-border text-muted-foreground"
-                    title="MP4 export requires Creatomate render pipeline"
+                    onClick={onRender}
+                    className="w-full rounded-xl gap-2 bg-primary text-primary-foreground hover:bg-primary/90 neon-glow"
                   >
-                    <Download className="w-4 h-4" /> Save Project (no MP4 yet)
+                    <Film className="w-4 h-4" /> Render & Download MP4
                   </Button>
                 )}
               </>
