@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 const statusConfig = {
   draft:      { color: 'bg-muted-foreground/20 text-muted-foreground', label: 'Draft' },
@@ -27,6 +28,36 @@ export default function ProjectCard({ project, onDelete, onRetry, index = 0 }) {
   const isGenerating = project.status === 'generating' || project.status === 'rendering';
   const isFailed = project.status === 'failed';
   const isReady = project.status === 'ready' || project.status === 'exported';
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = project.video_url;
+    if (!url || downloading) return;
+    setDownloading(true);
+    const toastId = toast.loading('Preparing download...');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${(project.title || 'video').replace(/[^a-z0-9_\- ]/gi, '').trim() || 'video'}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      toast.success('Download started! Check your Downloads folder.', { id: toastId });
+    } catch {
+      toast.dismiss(toastId);
+      window.open(url, '_blank');
+      toast.info('Video opened in new tab — right-click the video → Save video as…', { duration: 8000 });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <motion.div
@@ -87,17 +118,16 @@ export default function ProjectCard({ project, onDelete, onRetry, index = 0 }) {
               </Link>
               {/* Download MP4 — only shown when final video is rendered */}
               {project.video_url && (
-                <a
-                  href={project.video_url}
-                  download={`${project.title || 'clipforge-video'}.mp4`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-8 h-8 rounded-full bg-primary/80 backdrop-blur-sm flex items-center justify-center hover:bg-primary transition-colors"
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="w-8 h-8 rounded-full bg-primary/80 backdrop-blur-sm flex items-center justify-center hover:bg-primary transition-colors disabled:opacity-50"
                   title="Download MP4"
-                  onClick={e => e.stopPropagation()}
                 >
-                  <Download className="w-3.5 h-3.5 text-black" />
-                </a>
+                  {downloading
+                    ? <Loader2 className="w-3.5 h-3.5 text-black animate-spin" />
+                    : <Download className="w-3.5 h-3.5 text-black" />}
+                </button>
               )}
             </div>
           </div>
@@ -118,16 +148,10 @@ export default function ProjectCard({ project, onDelete, onRetry, index = 0 }) {
                 </Link>
               </DropdownMenuItem>
               {isReady && project.video_url && (
-                <DropdownMenuItem asChild>
-                  <a
-                    href={project.video_url}
-                    download={`${project.title || 'clipforge-video'}.mp4`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2"
-                  >
-                    <Download className="w-3 h-3" /> Download MP4
-                  </a>
+                <DropdownMenuItem onClick={handleDownload} className="flex items-center gap-2">
+                  {downloading
+                    ? <><Loader2 className="w-3 h-3 animate-spin" /> Downloading...</>
+                    : <><Download className="w-3 h-3" /> Download MP4</>}
                 </DropdownMenuItem>
               )}
               {isFailed && (
