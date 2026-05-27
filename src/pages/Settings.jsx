@@ -6,14 +6,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Save, Check, Zap, Mic, Palette, Music, Type, Globe, Calendar, Video, Activity } from 'lucide-react';
+import { Save, Check, Zap, Mic, Palette, Music, Type, Globe, Calendar, Video } from 'lucide-react';
 import { VOICE_PRESETS, VOICE_CATEGORIES } from '../lib/voiceSystem';
 import { CATEGORIES } from '../lib/categoryPresets';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import BrandSettings from '../components/settings/BrandSettings';
 import VideoProviderSettings from '../components/settings/VideoProviderSettings';
-import ApiConnectionsPanel from '../components/settings/ApiConnectionsPanel';
 
 const MUSIC_OPTIONS = [
   { value: 'epic_cinematic', label: 'Epic Cinematic' },
@@ -111,11 +110,6 @@ export default function Settings() {
           {saveMutation.isPending ? 'Saving...' : 'Save Defaults'}
         </Button>
       </div>
-
-      {/* API Connections */}
-      <Section icon={Activity} title="API Connections">
-        <ApiConnectionsPanel />
-      </Section>
 
       {/* Voice */}
       <Section icon={Mic} title="Default Voice">
