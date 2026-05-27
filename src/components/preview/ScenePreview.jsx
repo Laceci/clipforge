@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack } from 'lucide-react';
 import CaptionRenderer from './CaptionRenderer';
 import { computeSceneTiming } from '@/lib/timingEngine';
-import { speakScene, stopSpeech } from '@/lib/ttsEngine';
 import { VISUAL_EFFECTS } from '@/lib/aiEnhancements';
 
 function fmtTime(sec) {
@@ -10,19 +9,12 @@ function fmtTime(sec) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/**
- * ScenePreview — Full video preview with voice-synced caption animation.
- */
 export default function ScenePreview({ scenes = [], projectData = {} }) {
   const [sceneIdx, setSceneIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [sceneTime, setSceneTime] = useState(0);
-  const [muted, setMuted] = useState(true);
   const rafRef = useRef(null);
   const startRef = useRef(null);
-  const isSpeakingRef = useRef(false);
-  const audioRef = useRef(null);
-  const mutedRef = useRef(false);
 
   const voiceSettings = {
     voice_speed: projectData.voice_speed || 1.0,
@@ -31,14 +23,11 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
     voice_pitch: projectData.voice_pitch || 1.0,
   };
 
-  useEffect(() => { mutedRef.current = muted; }, [muted]);
-
   const timedScenes = React.useMemo(
     () => computeSceneTiming(scenes, voiceSettings),
     [scenes, voiceSettings.voice_speed, voiceSettings.voice_pause]
   );
 
-  // Reset index if scenes change (e.g. after drag-reorder in editor)
   useEffect(() => {
     setSceneIdx(0);
     setSceneTime(0);
@@ -49,36 +38,20 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
   const currentScene = timedScenes[safeIdx];
   const sceneDuration = currentScene?.duration || 5;
 
-  // TTS + rAF playback loop
+  // Visual-only playback loop — no audio
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
-    if (!isPlaying) {
-      stopSpeech();
-      isSpeakingRef.current = false;
-      return;
-    }
+    if (!isPlaying) return;
     startRef.current = performance.now() - sceneTime * 1000;
-
-    if (!isSpeakingRef.current && currentScene?.text) {
-      isSpeakingRef.current = true;
-      speakScene(currentScene.text, {
-        voice_speed: voiceSettings.voice_speed,
-        voice_pitch: voiceSettings.voice_pitch,
-        muted: mutedRef.current,
-      }).then(() => { isSpeakingRef.current = false; });
-    }
 
     const tick = () => {
       const t = (performance.now() - startRef.current) / 1000;
       if (t >= sceneDuration) {
         if (safeIdx < timedScenes.length - 1) {
-          isSpeakingRef.current = false;
           setSceneIdx(i => i + 1);
           setSceneTime(0);
           startRef.current = performance.now();
         } else {
-          stopSpeech();
-          isSpeakingRef.current = false;
           setIsPlaying(false);
           setSceneTime(0);
           setSceneIdx(0);
@@ -92,44 +65,9 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
     return () => cancelAnimationFrame(rafRef.current);
   }, [isPlaying, safeIdx, sceneDuration]);
 
-  // Handle mute toggle mid-play
-  useEffect(() => {
-    if (muted) {
-      stopSpeech();
-    } else if (isPlaying && currentScene?.text && !isSpeakingRef.current) {
-      isSpeakingRef.current = true;
-      speakScene(currentScene.text, { voice_speed: voiceSettings.voice_speed, voice_pitch: voiceSettings.voice_pitch, muted: false })
-        .then(() => { isSpeakingRef.current = false; });
-    }
-  }, [muted]);
-
-  // Background music via HTML audio
-  useEffect(() => {
-    const MUSIC_TRACKS = {
-      epic_cinematic: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3',
-    };
-    if (!projectData.music_track || muted) return;
-    const url = MUSIC_TRACKS[projectData.music_track];
-    if (!url) return;
-    if (!audioRef.current) {
-      audioRef.current = new Audio(url);
-      audioRef.current.loop = true;
-      audioRef.current.volume = (projectData.music_volume || 30) / 100;
-    }
-    if (isPlaying) audioRef.current.play().catch(() => {});
-    else audioRef.current.pause();
-    return () => {};
-  }, [isPlaying, muted, projectData.music_track]);
-
-  useEffect(() => () => {
-    cancelAnimationFrame(rafRef.current);
-    stopSpeech();
-    audioRef.current?.pause();
-  }, []);
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   const goToScene = (idx) => {
-    stopSpeech();
-    isSpeakingRef.current = false;
     const clamped = Math.max(0, Math.min(idx, timedScenes.length - 1));
     setSceneIdx(clamped);
     setSceneTime(0);
@@ -187,7 +125,7 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
             className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 disabled:opacity-30 transition-all">
             <SkipBack className="w-4 h-4 text-white" />
           </button>
-          <button onClick={() => { if (isPlaying) { stopSpeech(); isSpeakingRef.current = false; } setIsPlaying(p => !p); }}
+          <button onClick={() => setIsPlaying(p => !p)}
             className="w-10 h-10 rounded-full bg-primary flex items-center justify-center hover:bg-primary/80 transition-all neon-glow">
             {isPlaying ? <Pause className="w-4 h-4 text-black" /> : <Play className="w-4 h-4 text-black ml-0.5" />}
           </button>
@@ -195,18 +133,9 @@ export default function ScenePreview({ scenes = [], projectData = {} }) {
             className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 disabled:opacity-30 transition-all">
             <SkipForward className="w-4 h-4 text-white" />
           </button>
-          <button onClick={() => setMuted(m => !m)}
-            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-all">
-            {muted ? <VolumeX className="w-3.5 h-3.5 text-white/50" /> : <Volume2 className="w-3.5 h-3.5 text-white" />}
-          </button>
         </div>
 
         <p className="text-center text-[10px] text-white/50">{fmtTime(elapsed)} / {fmtTime(totalDuration)}</p>
-        {!muted && (
-          <p className="text-center text-[9px] text-amber-400/70 leading-tight">
-            Browser preview · final MP4 uses your ElevenLabs voice
-          </p>
-        )}
       </div>
 
       <style>{`

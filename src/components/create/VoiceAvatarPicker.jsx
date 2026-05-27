@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { stopSpeech, previewVoice } from '@/lib/ttsEngine';
+import { stopSpeech } from '@/lib/ttsEngine';
 import { VOICE_LIBRARY, validateVoiceSelection, logVoiceSelection } from '@/lib/voiceIdentity';
 import { base44 } from '@/api/base44Client';
 
@@ -155,10 +155,8 @@ export default function VoiceAvatarPicker({ value, onChange }) {
     } catch {
       setLoadingId(null);
       audioCtx?.close();
-      // Fallback: browser TTS with proper per-voice settings
-      setPlayingId(voice.id);
-      await previewVoice(voice.id, voice.speed || 1.0, voice.pitch || 1.0);
-      setPlayingId(null);
+      // ElevenLabs unavailable — stop cleanly, no browser TTS fallback
+      stopCurrent();
     }
   };
 

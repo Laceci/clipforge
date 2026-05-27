@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Square, Loader2, Volume2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
-import { previewVoice, stopSpeech, isTTSSupported } from '@/lib/ttsEngine';
+import { stopSpeech } from '@/lib/ttsEngine';
 import { cn } from '@/lib/utils';
 
 // Short sample per voice — used for ElevenLabs preview
@@ -36,8 +36,6 @@ export default function VoicePreviewButton({ voiceId = null, voiceStyle = 'motiv
   const [status, setStatus] = useState('idle'); // idle | loading | playing
   const audioRef = useRef(null);
   const blobUrlRef = useRef(null);
-  const supported = isTTSSupported();
-
   // Cleanup on unmount or voice change
   useEffect(() => {
     return () => {
@@ -92,17 +90,12 @@ export default function VoicePreviewButton({ voiceId = null, voiceStyle = 'motiv
         return;
       }
     } catch {
-      // ElevenLabs unavailable — fall through to browser TTS
+      // ElevenLabs unavailable — stop cleanly
+      setStatus('idle');
     }
-
-    // Fallback: browser Web Speech API
-    if (!supported) { setStatus('idle'); return; }
-    setStatus('playing');
-    await previewVoice(idToPreview, voiceSpeed, 1.0, voiceStyle);
-    setStatus('idle');
   };
 
-  if (!supported && !base44) return null;
+  if (!base44) return null;
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30 border border-border">
