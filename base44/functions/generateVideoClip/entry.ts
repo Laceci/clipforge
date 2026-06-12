@@ -18,26 +18,35 @@ const OPENAI_VOICE_MAP = {
   shadow_intense: 'onyx', void_eerie: 'shimmer', kai_trendy: 'fable',
 };
 
-// ElevenLabs voice map — covers every voice in VOICE_LIBRARY
+// ElevenLabs voice map — verified stable premade voice IDs
+// Male: Brian(nPcz), Antoni(ErXw), Arnold(VR6A), Josh(TxGE), Liam(TX3L), Adam(pNIn), Dave(IKne)
+// Female: Rachel(21m0), Bella(EXAV), Elli(MF3m), Dorothy(ThT5), Freya(pFZP), Domi(AZnz)
 const EL_VOICE_MAP = {
-  morgan_deep: 'nPczCjzI2devNBz1zQrb', alex_warm: 'ErXwobaYiN019PkySvjV',
-  claire_soothing: 'EXAVITQu4vr4xnSDxMaL', nova_clear: '21m00Tcm4TlvDq8ikWAM',
-  titan_power: 'VR6AewLTigWG4xSOukaG', blaze_bold: 'N2lVS1w4EtoT3dr4eOWO',
-  sophia_inspire: 'pMsXgVXv3BLzUgSXRplE', zara_fierce: 'AZnzlk1XvdvUeBnXmlld',
-  zen_deep: 'TxGEqnHWrfWFTfGW9XjX', aurora_soft: 'pFZP5JQG7iQjIQuC4Bku',
-  marcus_clear: 'TX3LPaxmHKxFdv7VOQHJ', ivy_crisp: '21m00Tcm4TlvDq8ikWAM',
-  sterling_pro: 'onwK4e9ZLuTAKqWW03F9', diana_executive: 'pMsXgVXv3BLzUgSXRplE',
-  jake_casual: 'IKne3meq5aSn9XLyUdCD', mia_friendly: 'EXAVITQu4vr4xnSDxMaL',
-  // Extended voice library
-  eli_tender: 'ErXwobaYiN019PkySvjV',   // Antoni — warm male
-  luna_warm: 'pFZP5JQG7iQjIQuC4Bku',    // Freya — warm female
-  sage_gentle: 'EXAVITQu4vr4xnSDxMaL',  // Bella — gentle female
-  reed_peaceful: 'TxGEqnHWrfWFTfGW9XjX',// Arnold — calm deep male
-  theo_smart: 'TX3LPaxmHKxFdv7VOQHJ',   // Liam — clear smart male
-  raven_dark: 'nPczCjzI2devNBz1zQrb',   // Brian — dark deep male
-  shadow_intense: 'VR6AewLTigWG4xSOukaG',// Sam — intense male
-  void_eerie: 'AZnzlk1XvdvUeBnXmlld',   // Domi — eerie female
-  kai_trendy: 'IKne3meq5aSn9XLyUdCD',   // Dave — casual trendy male
+  morgan_deep:     'nPczCjzI2devNBz1zQrb', // Brian — deep male narrator
+  alex_warm:       'ErXwobaYiN019PkySvjV',  // Antoni — warm male
+  claire_soothing: 'EXAVITQu4vr4xnSDxMaL', // Bella — soothing female
+  nova_clear:      '21m00Tcm4TlvDq8ikWAM',  // Rachel — clear female
+  titan_power:     'VR6AewLTigWG4xSOukaG',  // Arnold — powerful male
+  blaze_bold:      'pNInz6obpgDQGcFmaJgB',  // Adam — bold assertive male (was wrong female ID)
+  sophia_inspire:  'MF3mGyEYCl7XYWbV9V6O',  // Elli — inspiring female
+  zara_fierce:     'AZnzlk1XvdvUeBnXmlld',  // Domi — fierce female
+  zen_deep:        'TxGEqnHWrfWFTfGW9XjX',  // Josh — calm deep male
+  aurora_soft:     'pFZP5JQG7iQjIQuC4Bku',  // Freya — soft female
+  marcus_clear:    'TX3LPaxmHKxFdv7VOQHJ',  // Liam — clear informative male
+  ivy_crisp:       'ThT5KcBeYPX3keUQqHPh',  // Dorothy — crisp female (was Rachel duplicate)
+  sterling_pro:    'onwK4e9ZLuTAKqWW03F9',  // Adam variant — professional male
+  diana_executive: '21m00Tcm4TlvDq8ikWAM',  // Rachel — executive female
+  jake_casual:     'IKne3meq5aSn9XLyUdCD',  // Dave — casual male
+  mia_friendly:    'MF3mGyEYCl7XYWbV9V6O',  // Elli — friendly female (was Bella duplicate)
+  eli_tender:      'ErXwobaYiN019PkySvjV',   // Antoni — tender male
+  luna_warm:       'pFZP5JQG7iQjIQuC4Bku',  // Freya — warm female
+  sage_gentle:     'EXAVITQu4vr4xnSDxMaL',  // Bella — gentle female
+  reed_peaceful:   'TxGEqnHWrfWFTfGW9XjX',  // Josh — peaceful male
+  theo_smart:      'TX3LPaxmHKxFdv7VOQHJ',  // Liam — smart male
+  raven_dark:      'nPczCjzI2devNBz1zQrb',  // Brian — dark male
+  shadow_intense:  'VR6AewLTigWG4xSOukaG',  // Arnold — intense male
+  void_eerie:      'AZnzlk1XvdvUeBnXmlld',  // Domi — eerie female
+  kai_trendy:      'IKne3meq5aSn9XLyUdCD',  // Dave — trendy male
 };
 
 function toBase64(buffer) {

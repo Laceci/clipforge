@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { stopSpeech } from '@/lib/ttsEngine';
 import { VOICE_LIBRARY, validateVoiceSelection, logVoiceSelection } from '@/lib/voiceIdentity';
 import { base44 } from '@/api/base44Client';
+import { toast } from 'sonner';
 
 // Map library voices to component format for backward compatibility
 const VOICES = VOICE_LIBRARY.map(voice => ({
@@ -152,11 +153,11 @@ export default function VoiceAvatarPicker({ value, onChange }) {
         audio.onended = () => stopCurrent();
         audio.onerror = () => stopCurrent();
       }
-    } catch {
+    } catch (err) {
       setLoadingId(null);
       audioCtx?.close();
-      // ElevenLabs unavailable — stop cleanly, no browser TTS fallback
       stopCurrent();
+      toast.error('Voice preview unavailable — check ElevenLabs quota in Base44 Secrets', { duration: 4000 });
     }
   };
 

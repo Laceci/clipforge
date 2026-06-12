@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Sparkles, Loader2, Wand2 } from 'lucide-react';
+import { Sparkles, Loader2, Wand2, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 
 const categories = [
@@ -27,33 +28,20 @@ export default function ScriptStep({ data, onChange, initialCategory }) {
   const generateScript = async () => {
     if (!data.topic?.trim()) return;
     setGenerating(true);
-    const result = await base44.integrations.Core.InvokeLLM({
-      prompt: `You are a viral short-form video scriptwriter. Write a compelling 40-70 second script for a faceless video.
-
-Topic/Hook: "${data.topic}"
-Category: ${category}
-
-Requirements:
-- Write in short, punchy sentences
-- Use emotional hooks and cliffhangers
-- Make it storytelling-style or motivational
-- Include 5-8 scenes/segments
-- Each scene should be 1-2 sentences
-- Mark scene breaks with [SCENE]
-- Make it viral-worthy and engaging
-- Don't include any stage directions or notes, just the narration text
-
-Output the script only, nothing else.`,
-    });
-    const script = typeof result === 'string' ? result : result.toString();
-    const wordCount = script.split(/\s+/).length;
-    const estimatedDuration = Math.round(wordCount / 2.5);
-    onChange({
-      script,
-      template_category: category,
-      duration: estimatedDuration,
-    });
-    setGenerating(false);
+    try {
+      const result = await base44.functions.invoke('generateScript', {
+        topic: data.topic.trim(),
+        category,
+        target_duration: 50,
+      });
+      const { script, estimated_duration } = result?.data || {};
+      if (!script) throw new Error(result?.data?.error || 'No script returned');
+      onChange({ script, template_category: category, duration: estimated_duration || 50 });
+    } catch (err) {
+      toast.error('Script generation failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setGenerating(false);
+    }
   };
 
   return (
