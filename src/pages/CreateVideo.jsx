@@ -256,6 +256,8 @@ export default function CreateVideo() {
         caption_style: projectData.caption_style || 'tiktok_bold',
         highlight_color: projectData.highlight_color || '#A3E635',
         resolution: projectData.resolution || '1080p',
+        music_track: projectData.music_track || 'none',
+        music_volume: projectData.music_volume || 20,
       });
 
       const data = result?.data;

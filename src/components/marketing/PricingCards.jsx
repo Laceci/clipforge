@@ -1,10 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Check, Crown } from 'lucide-react';
+import { Check, Crown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// Fill these in from Base44 → Payments → Plan IDs once Stripe is configured
+const STRIPE_PLAN_IDS = {
+  starter: '',  // e.g. 'price_1234starter'
+  growth:  '',  // e.g. 'price_1234growth'
+  pro:     '',  // e.g. 'price_1234pro'
+};
 
 const PLANS = [
   {
+    id: 'starter',
     name: 'Starter',
     subtitle: 'Great for getting started',
     price: '$14',
@@ -23,6 +33,7 @@ const PLANS = [
     featured: false,
   },
   {
+    id: 'growth',
     name: 'Growth',
     subtitle: 'Most popular',
     price: '$22',
@@ -42,6 +53,7 @@ const PLANS = [
     featured: true,
   },
   {
+    id: 'pro',
     name: 'Pro',
     subtitle: 'For serious creators',
     price: '$38',
@@ -62,6 +74,34 @@ const PLANS = [
 ];
 
 export default function PricingCards() {
+  const [loadingPlan, setLoadingPlan] = useState(null);
+
+  const handleSubscribe = async (plan) => {
+    const planId = STRIPE_PLAN_IDS[plan.id];
+    if (!planId) {
+      // Stripe not wired yet — collect interest
+      toast.success(`Thanks for your interest in ${plan.name}! We'll reach out to lacecinow@gmail.com when payments go live.`, { duration: 5000 });
+      return;
+    }
+    setLoadingPlan(plan.id);
+    try {
+      const result = await base44.integrations.Stripe.createCheckoutSession({
+        plan_id: planId,
+        success_url: window.location.origin + '/?payment=success',
+        cancel_url: window.location.origin + '/pricing',
+      });
+      if (result?.url) {
+        window.location.href = result.url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (err) {
+      toast.error('Checkout unavailable — contact lacecinow@gmail.com to subscribe.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
   return (
     <div className="mb-12">
       <div className="text-center space-y-3 mb-8">
@@ -125,6 +165,8 @@ export default function PricingCards() {
             </div>
 
             <Button
+              onClick={() => handleSubscribe(plan)}
+              disabled={loadingPlan === plan.id}
               className={cn(
                 'w-full rounded-xl font-bold py-3 text-base',
                 plan.featured
@@ -132,7 +174,7 @@ export default function PricingCards() {
                   : 'bg-secondary text-foreground hover:bg-secondary/80'
               )}
             >
-              {plan.cta}
+              {loadingPlan === plan.id ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : plan.cta}
             </Button>
           </div>
         ))}

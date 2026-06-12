@@ -58,6 +58,16 @@ const EL_VOICE_MAP: Record<string, string> = {
 };
 const DEFAULT_EL_VOICE = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 
+// Royalty-free background music (CC0 / free-for-commercial-use from Pixabay)
+const MUSIC_URLS: Record<string, string> = {
+  epic_cinematic:      'https://cdn.pixabay.com/audio/2023/06/14/audio_6abda0d2f9.mp3',
+  dark_ambient:        'https://cdn.pixabay.com/audio/2022/10/25/audio_946e3a0e34.mp3',
+  motivational_piano:  'https://cdn.pixabay.com/audio/2023/04/08/audio_a4d5c77d8c.mp3',
+  lofi_chill:          'https://cdn.pixabay.com/audio/2022/08/04/audio_2dde668d05.mp3',
+  dramatic_orchestral: 'https://cdn.pixabay.com/audio/2023/07/18/audio_15e5df1d60.mp3',
+  upbeat_corporate:    'https://cdn.pixabay.com/audio/2022/12/23/audio_c95f54a7ec.mp3',
+};
+
 interface SceneInput {
   image_url: string | null;
   video_url: string | null;
@@ -126,6 +136,8 @@ Deno.serve(async (req) => {
       caption_style = 'tiktok_bold',
       highlight_color = '#A3E635',
       resolution = '1080p',
+      music_track = 'none',
+      music_volume = 20,
     } = body;
 
     if (!script?.trim()) return Response.json({ error: 'script is required' }, { status: 400 });
@@ -286,6 +298,22 @@ Deno.serve(async (req) => {
       currentTime += dur;
     }
 
+    // Background music (low volume, loops to fill video)
+    const musicUrl = MUSIC_URLS[music_track];
+    if (musicUrl && music_track !== 'none') {
+      const vol = Math.min(40, Math.max(5, Number(music_volume) || 20));
+      elements.push({
+        type:   'audio',
+        source: musicUrl,
+        time:   0,
+        volume: `${vol}%`,
+        audio_fade_in:  1,
+        audio_fade_out: 1.5,
+      });
+      console.log(`[RenderFinal] 🎵 Music: ${music_track} @ ${vol}%`);
+    }
+
+    // Voiceover on top at full volume
     elements.push({
       type:   'audio',
       source: audioUrl,

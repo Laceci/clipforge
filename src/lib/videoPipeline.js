@@ -41,48 +41,23 @@ export async function runVideoPipeline(projectData, onProgress) {
   console.log('[ClipForge] 🚀 Pipeline started');
   console.log(`[ClipForge] 📋 Topic: "${projectData.topic}", Category: ${projectData.template_category}`);
 
-  // Step 0: Generate script if only topic provided
+  // Step 0: Generate script via GPT-4o backend function (also returns scene_visuals)
   step('script');
   let script = projectData.script?.trim() || '';
+  // scene_visuals: AI-generated visual description per scene — used instead of raw narration for image gen
+  let sceneVisuals = projectData.scene_visuals || [];
   if (!script && projectData.topic) {
     try {
-      const generated = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a world-class viral short-form video scriptwriter. Your scripts consistently get millions of views on TikTok and YouTube Shorts.
-
-Write a tight, cinematic script for a faceless vertical video.
-
-Topic: "${projectData.topic}"
-Category: ${projectData.template_category || 'custom'}
-Tone: ${projectData.voice_style || 'motivational'}
-Target length: ${projectData.duration_target || '60 seconds'}
-
-FOLLOW THIS EXACT STRUCTURE — one [SCENE] per beat:
-
-[SCENE 1 — HOOK]: Open with a shocking stat, bold claim, or question that stops the scroll. Max 2 sentences. Make it impossible to ignore.
-
-[SCENE 2 — TENSION]: Deepen the hook. Why does this matter? Create urgency or curiosity. Max 2 sentences.
-
-[SCENE 3 — INSIGHT 1]: First key revelation. Specific, surprising, counterintuitive. Max 2 sentences.
-
-[SCENE 4 — INSIGHT 2]: Second point that builds on the first. Add concrete detail or example. Max 2 sentences.
-
-[SCENE 5 — TURNING POINT]: The most powerful moment — a story beat, a statistic, or a reframe that shifts perspective. Max 2 sentences.
-
-[SCENE 6 — PAYOFF]: Deliver the answer or resolution they've been waiting for. Max 2 sentences.
-
-[SCENE 7 — CTA]: One direct call to action. Tell them to follow, comment, or share. 1 sentence.
-
-RULES (non-negotiable):
-- Every sentence must be spoken narration — no stage directions, no [brackets], no descriptions
-- Each scene suggests a clear visual: a person, a place, an action, or an object
-- Use conversational language — write how people talk, not how they write
-- Replace vague words with specific ones ("some people" → "1 in 3 adults")
-- Each scene must connect logically to the next — this is a story, not random facts
-- Mark scene breaks with [SCENE] on its own line
-
-Output the script only. No scene labels. Just the narration text with [SCENE] breaks.`,
+      const scriptResult = await base44.functions.invoke('generateScript', {
+        topic: projectData.topic,
+        category: projectData.template_category || 'motivation',
+        target_duration: projectData.duration_target || 50,
       });
-      script = typeof generated === 'string' ? generated : generated.toString();
+      const scriptData = scriptResult?.data;
+      if (!scriptData?.script) throw new Error(scriptData?.error || 'No script returned from generateScript');
+      script = scriptData.script;
+      sceneVisuals = scriptData.scene_visuals || [];
+      console.log(`[ClipForge] 🤖 GPT-4o script: ${(scriptData.word_count || 0)} words, ${sceneVisuals.length} visual prompts`);
     } catch (err) {
       const detail = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'unknown';
       throw new Error(`Script generation failed: ${detail}`);
@@ -164,8 +139,10 @@ Output the script only. No scene labels. Just the narration text with [SCENE] br
     const directed = scene.directedScene;
     console.log(`[ClipForge] 🎬 Scene ${i + 1} - ${directed?.mood || 'neutral'} mood`);
     const cleanSceneText = (scene.text || '').replace(/\[SCENE\]/gi, '').replace(/\s+/g, ' ').trim();
+    // Use AI-generated visual description if available — produces images that match topic, not narration literals
+    const visualPrompt = sceneVisuals[i] || cleanSceneText;
     const payload = {
-      sceneText: cleanSceneText,
+      sceneText: visualPrompt,
       sceneIndex: i,
       duration: scene.duration || 5,
       mood: directed?.mood || 'neutral',
@@ -332,6 +309,8 @@ Output the script only. No scene labels. Just the narration text with [SCENE] br
       caption_style:   captionStyle,
       highlight_color: highlightColor,
       resolution:      projectData.resolution || '1080p',
+      music_track:     projectData.music_track || 'none',
+      music_volume:    projectData.music_volume || 20,
     };
 
     console.log('[ClipForge] 🎙 Submitting render job via generateVideoClip (ElevenLabs + Creatomate)...');

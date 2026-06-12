@@ -99,6 +99,8 @@ export default function Editor() {
         caption_style: currentData.caption_style || 'tiktok_bold',
         highlight_color: currentData.highlight_color || '#A3E635',
         resolution: currentData.resolution || '1080p',
+        music_track: currentData.music_track || 'none',
+        music_volume: currentData.music_volume || 20,
       });
       const data = result?.data;
       if (data?.error) throw new Error(data.error);
