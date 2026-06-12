@@ -14,6 +14,20 @@ const CATEGORY_PROMPTS = {
   custom:           'Write in whatever style best suits the topic. Prioritise emotional resonance and viewer retention.',
 };
 
+// Visual style context tells GPT-4o what kind of image to describe
+const VISUAL_STYLE_GUIDE = {
+  motivation:       'dramatic motivational imagery — silhouettes, sunrise, lone figure, urban grit, achievement',
+  storytelling:     'cinematic narrative — moody lighting, close-ups of faces, atmospheric environments',
+  facts:            'documentary style — scientific imagery, nature, space, microscopic, historical photos',
+  horror:           'dark horror atmosphere — abandoned places, shadows, dim light, eerie emptiness, fog',
+  finance:          'wealth and money imagery — city skylines, gold, charts, luxury minimalism, hands holding cash',
+  fitness:          'athletic and body imagery — training, muscles, sweat, gym, outdoor sports, motion blur',
+  dark_psychology:  'psychological tension — chess pieces, faces in shadow, manipulation metaphors, mirrors',
+  self_improvement: 'personal growth imagery — person reading, journaling, calm spaces, morning routines',
+  business:         'sharp corporate imagery — boardrooms, handshakes, minimalist offices, leadership moments',
+  custom:           'cinematic photorealistic imagery matching the topic',
+};
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
 
@@ -29,26 +43,44 @@ Deno.serve(async (req) => {
     if (!openaiKey) return Response.json({ error: 'OPENAI_API_KEY not set in Base44 Secrets' }, { status: 500 });
 
     const styleGuide = CATEGORY_PROMPTS[category] || CATEGORY_PROMPTS.custom;
+    const visualGuide = VISUAL_STYLE_GUIDE[category] || VISUAL_STYLE_GUIDE.custom;
     const sceneCount = Math.max(5, Math.min(10, Math.round(target_duration / 7)));
 
-    const systemPrompt = `You are an expert viral short-form video scriptwriter. You write scripts specifically for faceless AI-narrated videos on TikTok, Instagram Reels, and YouTube Shorts. Your scripts generate millions of views because you understand viewer psychology, retention hooks, and pattern interrupts.`;
+    const systemPrompt = `You are an expert viral short-form video scriptwriter and visual director. You create scripts for faceless AI-narrated videos on TikTok, Instagram Reels, and YouTube Shorts that generate millions of views.`;
 
-    const userPrompt = `Write a viral ${target_duration}-second faceless video script.
+    const userPrompt = `Write a viral ${target_duration}-second faceless video script AND matching visual descriptions.
 
 TOPIC: ${topic}
-CATEGORY STYLE: ${styleGuide}
+NARRATION STYLE: ${styleGuide}
+VISUAL DIRECTION: ${visualGuide}
 
-STRICT REQUIREMENTS:
-- Exactly ${sceneCount} scenes, each separated by [SCENE]
-- Each scene: 1-3 short punchy sentences (10-20 words each)
-- Scene 1 MUST be an irresistible hook that stops the scroll
-- Use pattern interrupts, curiosity gaps, and emotional triggers throughout
-- End with a powerful CTA or conclusion that drives comments/shares
-- NO stage directions, NO "(pause)", NO asterisks, NO descriptions — pure narration text only
-- NO filler phrases like "In conclusion" or "To summarise"
-- Write as if speaking directly to ONE person watching alone at 2am
+Return ONLY valid JSON with this exact structure (no markdown, no explanation):
+{
+  "scenes": [
+    {
+      "narration": "spoken narration text for this scene",
+      "visual": "specific cinematic image description for AI image generation"
+    }
+  ]
+}
 
-OUTPUT: Only the script text with [SCENE] separating each scene. Nothing else.`;
+NARRATION RULES (${sceneCount} scenes):
+- Each scene: 1-3 short punchy sentences, 10-20 words each
+- Scene 1 MUST be an irresistible scroll-stopping hook
+- Use curiosity gaps, pattern interrupts, emotional triggers
+- Last scene: powerful CTA or conclusion that drives comments/shares
+- NO stage directions, NO "(pause)", NO asterisks — pure spoken words only
+- NO filler like "In conclusion" or "To summarize"
+- Write as if speaking to ONE person alone at 2am
+
+VISUAL RULES (one per scene, must match narration mood):
+- Describe a specific photorealistic image: subject, setting, lighting, angle
+- 9:16 vertical composition, cinematic quality, dramatic lighting
+- NO text, NO logos, NO watermarks in description
+- Match the emotional tone of the narration
+- Be specific: "silhouette of a lone man standing on a rooftop at sunset, city lights below, warm orange haze" not "inspirational image"
+
+Return exactly ${sceneCount} scenes.`;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -56,7 +88,8 @@ OUTPUT: Only the script text with [SCENE] separating each scene. Nothing else.`;
       body: JSON.stringify({
         model: 'gpt-4o',
         temperature: 0.85,
-        max_tokens: 800,
+        max_tokens: 1200,
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -70,16 +103,29 @@ OUTPUT: Only the script text with [SCENE] separating each scene. Nothing else.`;
     }
 
     const json = await res.json();
-    const script = json.choices?.[0]?.message?.content?.trim();
+    const raw = json.choices?.[0]?.message?.content?.trim();
+    if (!raw) throw new Error('OpenAI returned empty response');
 
-    if (!script) throw new Error('OpenAI returned empty script');
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('OpenAI returned invalid JSON');
+    }
 
-    const wordCount = script.replace(/\[SCENE\]/g, '').split(/\s+/).filter(Boolean).length;
+    const scenes: Array<{ narration: string; visual: string }> = parsed.scenes || [];
+    if (!scenes.length) throw new Error('No scenes in response');
+
+    // Build script string for backward compat (ScriptStep shows it as plain text)
+    const script = scenes.map(s => s.narration).join('\n[SCENE]\n');
+    const scene_visuals = scenes.map(s => s.visual);
+
+    const wordCount = scenes.reduce((n, s) => n + s.narration.split(/\s+/).filter(Boolean).length, 0);
     const estimatedDuration = Math.round(wordCount / 2.3);
 
-    console.log(`[GenerateScript] ✅ ${sceneCount} scenes | ~${estimatedDuration}s | topic: "${topic.slice(0, 50)}"`);
+    console.log(`[GenerateScript] ✅ ${scenes.length} scenes | ~${estimatedDuration}s | topic: "${topic.slice(0, 50)}"`);
 
-    return Response.json({ script, estimated_duration: estimatedDuration, word_count: wordCount });
+    return Response.json({ script, scene_visuals, estimated_duration: estimatedDuration, word_count: wordCount });
 
   } catch (err) {
     console.error('[GenerateScript] ❌', err.message);

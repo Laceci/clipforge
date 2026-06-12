@@ -46,32 +46,51 @@ export default function GenerateStep({ data, onChange, onGenerate }) {
 
   const handleGenerate = async () => {
     setGenerating(true);
-    // Parse script into scenes
-    const scriptParts = data.script.split('[SCENE]').map(s => s.trim()).filter(Boolean);
-    const scenes = scriptParts.length > 1 ? scriptParts : data.script.split('\n\n').filter(s => s.trim());
-    
-    // Generate scene images using AI
-    const generatedScenes = [];
-    for (let i = 0; i < scenes.length; i++) {
-      const sceneText = scenes[i].trim();
-      if (!sceneText) continue;
+    try {
+      // Parse script into scenes
+      const scriptParts = data.script.split('[SCENE]').map(s => s.trim()).filter(Boolean);
+      const scenes = scriptParts.length > 1 ? scriptParts : data.script.split('\n\n').filter(s => s.trim());
 
-      const imageResult = await base44.integrations.Core.GenerateImage({
-        prompt: `${data.visual_style || 'cinematic'} style, vertical 9:16 aspect ratio, dramatic lighting, high quality. Scene: ${sceneText.substring(0, 200)}`,
-      });
+      // scene_visuals come from generateScript — cinematic visual descriptions per scene.
+      // Fall back to a styled version of the narration text for manually-written scripts.
+      const sceneVisuals = data.scene_visuals || [];
 
-      generatedScenes.push({
-        text: sceneText,
-        image_url: imageResult.url,
-        duration: Math.round((sceneText.split(/\s+/).length / 2.5)),
-        animation: 'pan_zoom',
-        order: i,
-      });
+      const generatedScenes = [];
+      for (let i = 0; i < scenes.length; i++) {
+        const narrationText = scenes[i].trim();
+        if (!narrationText) continue;
+
+        // Use AI-generated visual prompt if available, otherwise build one from the narration
+        const visualPrompt = sceneVisuals[i]
+          ? sceneVisuals[i]
+          : `${data.visual_style || 'cinematic'} style, dramatic lighting, 9:16 vertical composition, photorealistic. Subject: ${narrationText.substring(0, 150)}`;
+
+        let imageUrl = null;
+        try {
+          const imgResult = await base44.functions.invoke('generateVideoClip', {
+            provider: 'image_fallback',
+            sceneText: visualPrompt,
+            visual_style: data.visual_style || 'cinematic',
+          });
+          imageUrl = imgResult?.data?.image_url || null;
+        } catch (imgErr) {
+          console.warn(`Scene ${i + 1} image failed:`, imgErr.message);
+        }
+
+        generatedScenes.push({
+          text: narrationText,
+          image_url: imageUrl,
+          duration: Math.round(narrationText.split(/\s+/).length / 2.5),
+          animation: 'pan_zoom',
+          order: i,
+        });
+      }
+
+      onChange({ scenes: generatedScenes, status: 'ready' });
+      onGenerate();
+    } finally {
+      setGenerating(false);
     }
-
-    onChange({ scenes: generatedScenes, status: 'ready' });
-    setGenerating(false);
-    onGenerate();
   };
 
   const SettingSection = ({ icon: Icon, title, children }) => (

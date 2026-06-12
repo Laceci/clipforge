@@ -34,9 +34,9 @@ export default function ScriptStep({ data, onChange, initialCategory }) {
         category,
         target_duration: 50,
       });
-      const { script, estimated_duration } = result?.data || {};
+      const { script, scene_visuals, estimated_duration } = result?.data || {};
       if (!script) throw new Error(result?.data?.error || 'No script returned');
-      onChange({ script, template_category: category, duration: estimated_duration || 50 });
+      onChange({ script, scene_visuals, template_category: category, duration: estimated_duration || 50 });
     } catch (err) {
       toast.error('Script generation failed: ' + (err.message || 'Unknown error'));
     } finally {

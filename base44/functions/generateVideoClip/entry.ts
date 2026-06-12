@@ -107,8 +107,9 @@ Deno.serve(async (req) => {
           headers: { 'xi-api-key': elKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
           body: JSON.stringify({
             text: script.slice(0, 5000),
-            model_id: 'eleven_multilingual_v2',
-            voice_settings: { stability: 0.35, similarity_boost: 0.75, style: 0.30, use_speaker_boost: true, speed: speed },
+            model_id: 'eleven_turbo_v2_5',
+            voice_settings: { stability: 0.50, similarity_boost: 0.80, style: 0.40, use_speaker_boost: true },
+            speed: speed,
           }),
         });
         if (res.ok) {
